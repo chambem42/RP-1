@@ -270,6 +270,11 @@
     <Compile Include="SpaceCenter\SimulationParams.cs" />
     <Compile Include="SpaceCenter\SimReentryUtils.cs" />
     <Compile Include="SpaceCenter\ReentryTelemetryLogger.cs" />
+    <Compile Include="Reentry\ReentryModel.cs" />
+    <Compile Include="Reentry\ReentrySolver.cs" />
+    <Compile Include="Reentry\ReentryVesselBuilder.cs" />
+    <Compile Include="Reentry\ReentryAero.cs" />
+    <Compile Include="UI\ReentryGUI.cs" />
     <Compile Include="Utilities\ECMHelper.cs" />
     <Compile Include="Utilities\LambertSolver.cs" />
     <Compile Include="SpaceCenter\Projects\ISpaceCenterProject.cs" />

@@ -382,6 +382,27 @@ namespace RP0
             }
         }
 
+        /// <summary>
+        /// Fill the simulation config's Reentry mode from the editor's reentry analysis and open it, so the
+        /// predicted corridor can be flown for real.
+        /// </summary>
+        public static void PrefillReentrySim(double peKm, SimReentryArrival arrival, double apKm, double entrySpeed)
+        {
+            SimulationParams simParams = SpaceCenterManagement.Instance.SimulationParams;
+            if (simParams == null) simParams = SpaceCenterManagement.Instance.SimulationParams = new SimulationParams();
+            simParams.SimulationBody = Planetarium.fetch.Home;
+            simParams.SimulateInOrbit = true;
+            simParams.SimOrbitMode = SimOrbitMode.Reentry;
+            simParams.SimReentryArrival = arrival;
+            _sOrbitPe = peKm.ToString("F0");
+            _sOrbitAp = apKm.ToString("F0");
+            _sEntrySpeed = entrySpeed.ToString("F0");
+            _sEntryAlt = "";   // re-defaults to the top of the atmosphere
+            GUIStates.ShowSimConfig = true;
+            _simulationConfigPosition.height = 1;
+            _centralWindowPosition.height = 1;
+        }
+
         // Parses the reentry text fields. Returns false, with a reason, if any of them is unusable.
         private static bool TryParseReentryInputs(SimulationParams simParams, out double peAlt, out double apAlt,
                                                   out double entrySpeed, out double entryAlt, out double leadTime, out string error)
