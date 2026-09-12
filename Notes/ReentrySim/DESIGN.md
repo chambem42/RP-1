@@ -4,10 +4,19 @@ An investigation into answering, from the VAB/SPH, *"will this vehicle survive t
 return from a given orbit, and at what angle of attack and periapsis?"* — plus the flight-side
 reentry mode that lets the answer be checked against what the game actually does.
 
-Status: **investigation + reference implementation.** The flight-side half
-(`SimReentryUtils`, reentry mode in the simulation config, `ReentryTelemetryLogger`) is
-implemented. The editor-side analyser is designed and prototyped here in Python
-(`reentry_ref.py`) but is not yet written in C#; see [Effort and phasing](#effort-and-phasing).
+Status: **both halves implemented, awaiting in-game testing.** The flight side is a `Reentry`
+mode in the simulation config (`SimReentryUtils`, `SetReentrySimOrbit`) plus
+`ReentryTelemetryLogger`. The editor side is `Source/RP0/Reentry/` plus the `Reentry` tab
+(`ReentryGUI`). `reentry_ref.py` is the earlier Python reference and is now superseded on the
+thermal side by the decompiled formulae below.
+
+> **Revision note.** Sections 3 and 7 were first written without access to the KSP assembly.
+> With `ilspycmd` against `Assembly-CSharp.dll` the actual `FlightIntegrator`, `ModuleAblator`,
+> `DragCubeList`, `OcclusionData` and `OcclusionCone` bodies were read, and three things changed:
+> the convective-coefficient "gap" in §3.5 is closed (no calibration constant remains);
+> `externalTemperature` is `max(ambient, shock)`, not `ambient + shock`; and the stock
+> occlusion model turned out to be public, purely geometric classes that run fine in the editor,
+> so the C# prototype uses the real thing rather than the approximation proposed in §2.
 
 ---
 
@@ -87,7 +96,7 @@ should be checked against `FARAPI.VesselDragCoeff` on a flown vessel once, not a
 | Missing | Why | Proposed handling |
 |---|---|---|
 | `FlightIntegrator` itself | It is a `VesselModule` on a live `Vessel`. Its thermal methods are largely `public virtual`, but driving an instance without a vessel, rigidbodies and Krakensbane is not worth the fragility. | Reimplement the chain (section 3). |
-| Occlusion (`PartThermalData.convectionTempMultiplier` / `convectionCoeffMultiplier` / `convectionAreaMultiplier`) | Computed from raycasts against a live vessel each tick. | Estimate geometrically: a part's multiplier from the dot product of its offset from the vessel's windward extreme against the velocity vector, clamped. RP-1 already has the precedent for *what these mean* in `ModuleNonReentryRated`, which floors all three at 0.75 for non-reentry-rated parts, which is what makes those parts burn. |
+| Occlusion (`PartThermalData.convectionTempMultiplier` / `convectionCoeffMultiplier` / `convectionAreaMultiplier`) | ~~Computed from raycasts against a live vessel each tick.~~ **Corrected:** `FlightIntegrator.UpdateOcclusionConvection` is a geometric shock-cone model over `OcclusionData` (built from `part.partTransform` and drag-cube bounds) and `OcclusionCone`. Both classes and `PartThermalData` are public with public constructors. | **Run the real thing.** `ReentryVesselBuilder.ComputeOcclusion` is a transcription of the stock loop against the editor parts: sort by `maximumDot`, lead part gets the first cone, each following part accumulates `GetShockStats` from every cone ahead of it. Note the lead part behind a *detached* shock gets `convectionTempMultiplier = 0.5` (`OcclusionCone.detachedShockHeatMult`), which is why a bare stagnation-temperature model overheats blunt capsules. |
 | FAR voxel `radiativeArea` / `exposedArea` | FAR feeds these in from `FARAeroPartModule.ProjectedAreas` in flight, which is voxelised per-vessel. | Use drag cube areas in the editor, and note the discrepancy in the calibration run. |
 | Control authority / trim | Whether the vehicle can actually *hold* the AoA the sweep assumes. | Out of scope; report the AoA and let the player check trim in FAR's own stability tab. Flag it in the UI so the number is not read as a promise. |
 
@@ -115,11 +124,13 @@ ptd.finalCoeff = vessel.convectiveCoefficient * ptd.convectionArea * 0.001d
 and the flux into the skin is `finalCoeff * (postShockExtTemp - skinTemperature)` kW. That gives
 the whole per-part half of the model for free.
 
-### 3.2 Shock temperature — high confidence
+### 3.2 Shock temperature — confirmed by decompile
 
-`externalTemperature = atmosphericTemperature + shock`, where `shock` blends a low-speed and a
-hypersonic branch between `newtonianMachTempLerpStartMach` and `...EndMach`, raised to
-`newtonianMachTempLerpExponent`:
+`externalTemperature = max(atmosphericTemperature, shock)` — **max, not sum** (the first draft
+of this document had it as a sum). `shock` blends a low-speed and a hypersonic branch with
+`convectiveMachLerp = clamp01((mach - start) / (end - start)) ^ newtonianMachTempLerpExponent`,
+and is then multiplied by the difficulty `ReentryHeatScale` and the body's
+`shockTemperatureMultiplier`:
 
 - low speed: `spd * newtonianTemperatureFactor`
 - hypersonic: `machTemperatureScalar * spd^machTemperatureVelocityExponent`
@@ -150,19 +161,31 @@ Stock `ModuleAblator`, with RO's Lunar-shield values (`lossConst = 150`, `lossEx
 `pyrolysisLossFactor = 145833`, `ablationTempThresh = 1250`):
 
 ```
-rate = lossConst * exp(lossExp / skinTemperature)      units/s, above the threshold
-heat removed = rate * pyrolysisLossFactor              kW
-while ablating, skinInternalConductionMult -> reentryConductivity
+rate (units/s)   = lossConst * exp(lossExp / skinTemperature) * ablativeMaxAmount     (above the threshold)
+mass loss (t/s)  = rate * resource.density
+heat removed (kW)= pyrolysisLossFactor * resource.specificHeatCapacity * mass loss    (as exposed skin flux)
+part.heatConductivity = reentryConductivity while the shield face is not occluded, else the original
 ```
 
-The `exp(-25000/T)` term is a very sharp thermostat: at 2000 K it pulls ~82 kW, at 3000 K
-~5.3 MW. That is exactly why RO shields self-regulate near 2500–3000 K, and the prototype
-reproduces that behaviour. What still needs confirming against the game is the unit of an
-`Ablator` unit (`usekg`) and whether the rate is scaled by `nominalAmountRecip` — i.e. whether a
-bigger shield ablates faster in absolute terms. This changes *how long* a shield lasts, not how
-hot it runs.
+Decompiled from `ModuleAblator.FixedUpdate`, which settled the open questions: the rate scales
+with the tank's **max** amount (so a bigger shield ablates faster in absolute terms), and what
+`reentryConductivity` replaces is `part.heatConductivity` — which feeds `conductionMult` for
+skin-to-internal *and* part-to-part conduction — not `skinInternalConductionMult`. The
+`exp(-25000/T)` thermostat is as sharp as expected (the solver sub-steps against its slope).
 
-### 3.5 Convective coefficient — **the one real gap**
+### 3.5 Convective coefficient — closed
+
+**Superseded.** The decompiled `CalculateConvectiveCoefficientMach` is simply
+
+```
+coeff = 1E-07 * machConvectionFactor * rho^machConvectionDensityExponent * spd^machConvectionVelocityExponent
+```
+
+a direct W/(m²K) coefficient with a fixed `1e-7`, blended with the Newtonian branch by
+`convectiveMachLerp` and multiplied by the body's `convectionMultiplier`. (For `density > 1`
+both branches use `density` unexponentiated.) There is no flux-over-ΔT step and nothing left
+to calibrate; the telemetry logger's job is now verification, not fitting. The reasoning below
+is kept for the record.
 
 The constants are all named and their RO values known:
 
