@@ -1300,6 +1300,10 @@ namespace RP0
             {
                 SetHyperbolicSimOrbit(simParams, body);
             }
+            else if (simParams.SimOrbitMode == SimOrbitMode.Reentry)
+            {
+                SetReentrySimOrbit(simParams, body, inc, lan);
+            }
             else if (simParams.SimOrbitMode == SimOrbitMode.Circular)
             {
                 double sma = simParams.SimOrbitAltitude + body.Radius;
@@ -1324,6 +1328,28 @@ namespace RP0
                 yield return new WaitUntil(() => active == null || !active.packed);
                 yield return TriggerSimStaging(simParams.SimAutostageTarget);
             }
+        }
+
+        // Places the vessel on the inbound leg of a Reentry-mode arrival, SimEntryLeadTime seconds before the
+        // entry interface. The conic comes from periapsis + apoapsis or periapsis + entry speed; see SimReentryUtils.
+        private static void SetReentrySimOrbit(SimulationParams simParams, CelestialBody body, double inc, double lan)
+        {
+            if (!SimReentryUtils.TryComputeEntry(body, simParams.SimOrbitPe, simParams.SimReentryArrival, simParams.SimOrbitAp,
+                                                 simParams.SimEntrySpeed, simParams.SimEntryAltitude, simParams.SimEntryLeadTime,
+                                                 out SimReentryUtils.EntryState entry, out string error))
+            {
+                // StartSim validated the same inputs, so this only fires if the persisted params were edited by hand.
+                RP0Debug.LogError($"Could not build reentry trajectory: {error}");
+                ScreenMessages.PostScreenMessage($"Could not build reentry trajectory: {error}", 8f, ScreenMessageStyle.UPPER_CENTER);
+                return;
+            }
+
+            RP0Debug.Log($"Reentry: {body.bodyName} Pe={simParams.SimOrbitPe:F0}m sma={entry.SMA:F0} ecc={entry.Ecc:F4} " +
+                         $"entry {entry.EntrySpeed:F0}m/s FPA={entry.EntryFPA:F2}deg at {simParams.SimEntryAltitude:F0}m, " +
+                         $"spawn {entry.SpawnAltitude:F0}m MNA={entry.MeanAnomaly:F4} inc={inc:F2} LAN={lan:F1} argPe={simParams.SimArgPe:F1}");
+            FlightGlobals.fetch.SetShipOrbit(body.flightGlobalsIndex, entry.Ecc, entry.SMA, inc, lan, entry.MeanAnomaly, simParams.SimArgPe, 0.0);
+            ScreenMessages.PostScreenMessage($"Entry interface in {simParams.SimEntryLeadTime:N0} s: {entry.EntrySpeed:N0} m/s at {entry.EntryFPA:N2} deg",
+                                             8f, ScreenMessageStyle.UPPER_CENTER);
         }
 
         // Places the vessel on the arrival hyperbola for a Hyperbolic-mode sim. SimulationUT is the ARRIVAL

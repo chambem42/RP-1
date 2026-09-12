@@ -3,7 +3,10 @@ using ROUtils.DataTypes;
 
 namespace RP0
 {
-    public enum SimOrbitMode { Circular, Elliptical, Hyperbolic }
+    public enum SimOrbitMode { Circular, Elliptical, Hyperbolic, Reentry }
+
+    // How a Reentry-mode arrival is described, alongside its periapsis.
+    public enum SimReentryArrival { Apoapsis, EntrySpeed }
 
     public class SimulationParams : ConfigNodePersistenceBase, IConfigNode
     {
@@ -75,6 +78,18 @@ namespace RP0
         // Autostage: -1 disables. Otherwise shed (decouple) every stage above SimAutostageTarget at sim start.
         [Persistent]
         public int SimAutostageTarget = -1;
+
+        // Reentry-mode parameters. The arriving trajectory is periapsis (SimOrbitPe, deliberately
+        // unclamped so it can sit inside the atmosphere) plus either an apoapsis (SimOrbitAp) or the
+        // speed at the entry interface (SimEntrySpeed, m/s - covers hyperbolic returns too). The vessel
+        // is spawned on the inbound leg SimEntryLeadTime seconds before reaching SimEntryAltitude (m).
+        [Persistent]
+        public SimReentryArrival SimReentryArrival = SimReentryArrival.Apoapsis;
+        [Persistent]
+        public double SimEntrySpeed, SimEntryAltitude, SimEntryLeadTime;
+        // Write per-tick heating data to a CSV, to check the editor's reentry prediction against real flight.
+        [Persistent]
+        public bool LogReentryTelemetry;
 
         public void Reset()
         {

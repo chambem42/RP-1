@@ -1,0 +1,87 @@
+
+==============================================================================
+LEO return (Ap 250 km), crewed 12 g limit
+==============================================================================
+  Pe km   AoA  ok   skin K  skin%   int%      g       MJ    abl  outcome
+   -200     0   Y     2136   60.4   33.4    9.0    204.0    0.1  slowed to subsonic descent
+   -200    10   Y     2064   58.3   33.5    3.5    249.7    0.1  slowed to subsonic descent
+   -200    20   Y     2008   56.4   33.5    2.9    297.5    0.1  slowed to subsonic descent
+   -200    30   Y     1981   55.4   33.5    2.4    319.2    0.0  slowed to subsonic descent
+   -100     0   Y     2105   60.0   33.4    8.6    225.4    0.1  slowed to subsonic descent
+   -100    10   Y     2016   57.4   33.5    3.6    277.9    0.1  slowed to subsonic descent
+   -100    20   Y     1951   55.2   33.5    2.7    329.9    0.1  slowed to subsonic descent
+   -100    30   Y     1920   54.1   33.5    2.2    352.9    0.0  slowed to subsonic descent
+    -50     0   Y     2084   59.6   33.4    8.4    240.8    0.1  slowed to subsonic descent
+    -50    10   Y     1982   56.7   33.5    3.7    297.6    0.1  slowed to subsonic descent
+    -50    20   Y     1909   54.2   33.5    2.6    352.0    0.0  slowed to subsonic descent
+    -50    30   Y     1875   53.0   33.6    2.3    375.8    0.0  slowed to subsonic descent
+    -20     0   Y     2069   59.3   33.4    8.3    252.8    0.1  slowed to subsonic descent
+    -20    10   Y     1957   56.1   33.5    3.7    312.7    0.1  slowed to subsonic descent
+    -20    20   Y     1876   53.4   33.5    2.6    368.7    0.0  slowed to subsonic descent
+    -20    30   Y     1840   52.2   33.6    2.3    393.0    0.0  slowed to subsonic descent
+      0     0   Y     2058   59.1   33.5    8.3    262.6    0.1  slowed to subsonic descent
+      0    10   Y     1938   55.6   33.5    3.7    324.8    0.1  slowed to subsonic descent
+      0    20   Y     1849   52.7   33.6    2.6    382.0    0.0  slowed to subsonic descent
+      0    30   Y     1810   51.4   33.6    2.3    406.7    0.0  slowed to subsonic descent
+     20     0   Y     2047   58.8   33.5    8.2    274.6    0.1  slowed to subsonic descent
+     20    10   Y     1916   55.2   33.5    3.7    339.5    0.1  slowed to subsonic descent
+     20    20   Y     1816   51.9   33.6    2.6    397.9    0.0  slowed to subsonic descent
+     20    30   Y     1774   50.5   33.6    2.3    423.1    0.0  slowed to subsonic descent
+     40     0   Y     2035   58.6   33.5    8.2    290.1    0.1  slowed to subsonic descent
+     40    10   Y     1896   54.7   33.5    3.7    358.1    0.1  slowed to subsonic descent
+     40    20   Y     1777   51.4   33.6    2.6    417.8    0.0  slowed to subsonic descent
+     40    30   Y     1757   50.7   33.6    2.3    443.5    0.0  slowed to subsonic descent
+     60     0   Y     2024   58.3   33.5    8.2    311.7    0.1  slowed to subsonic descent
+     60    10   Y     1886   54.5   33.5    3.7    383.4    0.1  slowed to subsonic descent
+     60    20   Y     1792   51.8   33.6    2.6    444.7    0.0  slowed to subsonic descent
+     60    30   Y     1767   50.9   33.6    2.3    470.9    0.0  slowed to subsonic descent
+
+  best pair: Pe 20 km, AoA 30 deg -> peak skin 1774 K (51% of limit), 2.3 g, limited by Capsule hull
+  entry corridor (g limit 12):
+    AoA   0 deg: Pe   -200 ..    60 km
+    AoA  10 deg: Pe   -200 ..    60 km
+    AoA  20 deg: Pe   -200 ..    60 km
+    AoA  30 deg: Pe   -200 ..    60 km
+
+==============================================================================
+Lunar return (v_inf 1100 m/s, hyperbolic), crewed 12 g limit
+==============================================================================
+  Pe km   AoA  ok   skin K  skin%   int%      g       MJ    abl  outcome
+   -200     0   n     3279   91.1   33.4   67.7    170.8    0.7  slowed to subsonic descent
+   -200    10   n     3251   90.3   33.4   54.0    181.8    0.7  slowed to subsonic descent
+   -200    20   n     3222   89.5   33.4   47.0    204.3    0.7  slowed to subsonic descent
+   -200    30   n     3203   89.0   33.4   44.3    219.5    0.7  slowed to subsonic descent
+   -100     0   n     3199   88.9   33.4   51.4    194.3    0.8  slowed to subsonic descent
+   -100    10   n     3166   87.9   33.4   38.3    215.3    0.8  slowed to subsonic descent
+   -100    20   n     3134   87.1   33.4   32.2    256.9    0.8  slowed to subsonic descent
+   -100    30   n     3114   86.5   33.5   29.9    278.5    0.8  slowed to subsonic descent
+    -50     0   n     3136   87.1   33.4   41.4    214.6    0.8  slowed to subsonic descent
+    -50    10   n     3099   86.1   33.4   29.0    246.8    0.8  slowed to subsonic descent
+    -50    20   n     3067   85.2   33.5   23.7    309.3    0.8  slowed to subsonic descent
+    -50    30   n     3047   84.6   33.5   21.8    332.0    0.8  slowed to subsonic descent
+    -20     0   n     3084   85.7   33.4   34.4    233.3    0.9  slowed to subsonic descent
+    -20    10   n     3045   84.6   33.4   22.7    279.7    0.9  slowed to subsonic descent
+    -20    20   n     3011   83.6   33.5   18.2    360.3    0.8  slowed to subsonic descent
+    -20    30   n     2991   83.1   33.5   16.9    381.3    0.8  slowed to subsonic descent
+      0     0   n     3039   84.4   33.4   29.0    251.3    0.9  slowed to subsonic descent
+      0    10   n     2997   83.2   33.4   18.1    315.2    0.9  slowed to subsonic descent
+      0    20   n     2963   82.3   33.5   14.6    408.7    0.9  slowed to subsonic descent
+      0    30   n     2942   81.7   33.5   13.5    427.6    0.8  slowed to subsonic descent
+     20     0   n     2978   83.0   33.4   22.8    278.3    0.9  slowed to subsonic descent
+     20    10   n     2934   81.5   33.5   13.3    375.2    0.9  slowed to subsonic descent
+     20    20   Y     2897   80.5   33.6   10.9    477.4    0.9  slowed to subsonic descent
+     20    30   n     2876   79.9   33.4   10.2    311.3    0.8  skipped out of the atmosphere
+     40     0   n     2888   81.5   33.4   15.0    327.1    0.9  slowed to subsonic descent
+     40    10   Y     2835   79.5   33.5    8.4    508.9    0.9  slowed to subsonic descent
+     40    20   n     2794   77.9   33.4    6.9    339.7    0.7  skipped out of the atmosphere
+     40    30   n     2772   77.0   33.4    6.5    316.7    0.7  skipped out of the atmosphere
+     60     0   Y     2694   76.7   33.5    7.0    507.2    0.9  slowed to subsonic descent
+     60    10   n     2631   74.1   33.4    3.3    353.6    0.6  skipped out of the atmosphere
+     60    20   n     2590   72.3   33.4    2.8    302.0    0.5  skipped out of the atmosphere
+     60    30   n     2570   71.4   33.4    2.7    283.2    0.4  skipped out of the atmosphere
+
+  best pair: Pe 60 km, AoA 0 deg -> peak skin 2694 K (77% of limit), 7.0 g, limited by Capsule hull
+  entry corridor (g limit 12):
+    AoA   0 deg: Pe     60 ..    60 km
+    AoA  10 deg: Pe     40 ..    40 km
+    AoA  20 deg: Pe     20 ..    20 km
