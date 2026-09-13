@@ -18,6 +18,8 @@ namespace RP0.Reentry
         public string Description => "stock drag cubes";
         public double ReferenceArea => 1.0;
         public double LastTrimPitch => double.NaN;
+        public double LastWingLiftKN => double.NaN;
+        public double LastWingDragKN => double.NaN;
 
         public DragCubeAero(List<ReentryNode> nodes, Vector3 velDir, Vector3 liftAxis, ReentryConstants k)
         {
@@ -89,7 +91,7 @@ namespace RP0.Reentry
         private static Type _editorGuiType, _inputType, _outputType, _simType;
         private static PropertyInfo _instanceProp, _readyProp, _aeroConditionProp;
         private static FieldInfo _instantSimField, _wingListField, _maxCrossSectionField, _bodyLengthField;
-        private static FieldInfo _inAlpha, _inMach, _inPitch, _outCl, _outCd, _outCm;
+        private static FieldInfo _inAlpha, _inMach, _inPitch, _outCl, _outCd, _outCm, _outWingCl, _outWingCd;
         private static MethodInfo _getClCdCm, _forFlightPoint;
         private static FieldInfo _wingAreaField;
 
@@ -98,11 +100,13 @@ namespace RP0.Reentry
 
         private readonly double[] _mach, _alt;
         private readonly double[,] _cl, _cd, _trimPitch;   // [alt, mach]; a single altitude row when flight conditions are unsupported
+        private readonly double[,] _wingCl, _wingCd;       // the wing model's share of _cl/_cd (fork output), else NaN
         private readonly double _refArea;
         private readonly double _liftSign;
         private readonly bool _flightConditions;
         private int _untrimmable;
         private double _maxTrimPitch;
+        private double _lastWingCl, _lastWingCd;           // from the most recent EvalCm
 
         public string Description => (_flightConditions ? "FAR editor aero at flight Re/Kn" : "FAR editor aero (continuum)") + ", trimmed";
 
@@ -112,6 +116,8 @@ namespace RP0.Reentry
         public int UntrimmableSamples => _untrimmable;
         public int TotalSamples => _alt.Length * _mach.Length;
         public double LastTrimPitch { get; private set; }
+        public double LastWingLiftKN { get; private set; } = double.NaN;
+        public double LastWingDragKN { get; private set; } = double.NaN;
 
         // Trim: find the pitch control input that zeroes Cm at this alpha/Mach/altitude and take Cl/Cd
         // there. Holding an angle of attack costs control-surface deflection, and on a lifting body
@@ -149,6 +155,8 @@ namespace RP0.Reentry
             _getClCdCm.Invoke(sim, args);
             cl = Convert.ToDouble(_outCl.GetValue(args[1]));
             cd = Convert.ToDouble(_outCd.GetValue(args[1]));
+            _lastWingCl = _outWingCl != null ? Convert.ToDouble(_outWingCl.GetValue(args[1])) : double.NaN;
+            _lastWingCd = _outWingCd != null ? Convert.ToDouble(_outWingCd.GetValue(args[1])) : double.NaN;
             return _outCm != null ? Convert.ToDouble(_outCm.GetValue(args[1])) : 0.0;
         }
 
@@ -209,6 +217,8 @@ namespace RP0.Reentry
                     _outCd = _outputType.GetField("Cd", any);
                     _inPitch = _inputType.GetField("pitchValue", any);
                     _outCm = _outputType.GetField("Cm", any);
+                    _outWingCl = _outputType.GetField("WingCl", any);   // fork-only wing/body split
+                    _outWingCd = _outputType.GetField("WingCd", any);
                     if (wingType != null) _wingAreaField = wingType.GetField("S", any);
                     // Optional, fork-only: per-sample flight conditions.
                     _aeroConditionProp = _simType.GetProperty("AeroCondition", any);
@@ -254,6 +264,8 @@ namespace RP0.Reentry
             }
             _cl = new double[_alt.Length, _mach.Length];
             _cd = new double[_alt.Length, _mach.Length];
+            _wingCl = new double[_alt.Length, _mach.Length];
+            _wingCd = new double[_alt.Length, _mach.Length];
             _trimPitch = new double[_alt.Length, _mach.Length];
 
             // FAR's alpha is measured from +forward; a shield-first entry is alpha = 180 - AoA.
@@ -280,6 +292,8 @@ namespace RP0.Reentry
                         }
                         _inMach.SetValue(input, _mach[m]);
                         SampleTrimmed(sim, input, first, out _cl[ai, m], out _cd[ai, m], out _trimPitch[ai, m], out bool trimmed);
+                        _wingCl[ai, m] = _lastWingCl;
+                        _wingCd[ai, m] = _lastWingCd;
                         first = false;
                         if (!trimmed) _untrimmable++;
                         if (Math.Abs(_trimPitch[ai, m]) > _maxTrimPitch) _maxTrimPitch = Math.Abs(_trimPitch[ai, m]);
@@ -352,9 +366,20 @@ namespace RP0.Reentry
             Index(_alt, altitude, out int ai, out double af);
             double cl = Bilinear(_cl, ai, af, mi, mf);
             double cd = Bilinear(_cd, ai, af, mi, mf);
+            double wingCl = Bilinear(_wingCl, ai, af, mi, mf);
+            double wingCd = Bilinear(_wingCd, ai, af, mi, mf);
             LastTrimPitch = Bilinear(_trimPitch, ai, af, mi, mf);
-            dragKN = dynPresKPa * cd * _refArea;
+            // In flight FAR scales each part's along-velocity body force by the stock pseudo-Reynolds drag
+            // curve (never below 1), a large boost in the rarefied band. The editor sim runs at density 2
+            // and unit speed, where that curve reads 1, so it has to go back on here. Wing-model forces are
+            // applied directly and do not get it.
+            double bodyCd = double.IsNaN(wingCd) ? cd : cd - wingCd;
+            double wingCdOnly = double.IsNaN(wingCd) ? 0.0 : wingCd;
+            double dragMult = Math.Max(pseudoReDragMult, 1.0);
+            dragKN = dynPresKPa * _refArea * (bodyCd * dragMult + wingCdOnly);
             liftKN = dynPresKPa * cl * _refArea * _liftSign;
+            LastWingLiftKN = double.IsNaN(wingCl) ? double.NaN : dynPresKPa * wingCl * _refArea * _liftSign;
+            LastWingDragKN = double.IsNaN(wingCd) ? double.NaN : dynPresKPa * wingCd * _refArea;
         }
 
         private static void Index(double[] axis, double x, out int i, out double f)

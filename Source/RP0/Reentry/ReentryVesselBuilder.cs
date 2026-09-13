@@ -115,6 +115,8 @@ namespace RP0.Reentry
                 double cpMod = cp * n.Part.thermalMassModifier;
                 n.SkinThermalMass = Math.Max(0.1, Math.Min(0.001 * n.Part.skinMassPerArea * n.Part.skinThermalMassModifier * radArea * cpMod,
                                                             n.Part.mass * cpMod * 0.5));
+                // FlightIntegrator.UpdateMassStats: the skin's share comes out of the part's total.
+                n.ThermalMass = Math.Max(n.ThermalMass - n.SkinThermalMass, 0.1);
                 // A shield counts as exposed when its shielded face is not occluded by an attached part.
                 n.AblatorExposed = n.AblatorMax > 0.0 && n.ExposedArea[MachSamples.Length - 1] > 0.1 * radArea;
             }

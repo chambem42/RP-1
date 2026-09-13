@@ -96,7 +96,7 @@ namespace RP0.Reentry
                 if (trace != null && t >= nextTrace && density > 0.0)
                 {
                     nextTrace = t + TraceInterval;
-                    trace.Add(Sample(att, t, alt, vAir, mach, density, q, gees, ambientT, dragKN, liftSign * liftKN));
+                    trace.Add(Sample(att, t, alt, vAir, mach, density, q, gees, ambientT, dragKN, liftSign * liftKN, liftSign));
                     if (partsTrace != null) SampleParts(att, t, alt, partsTrace);
                 }
 
@@ -388,7 +388,7 @@ namespace RP0.Reentry
 
         // A trace row for the part closest to its limit, mirroring ReentryTelemetryLogger.FindHottestPart.
         private ReentryTraceSample Sample(ReentryAttitude att, double t, double alt, double vAir, double mach, double density,
-                                          double q, double gees, double ambientT, double dragKN, double liftKN)
+                                          double q, double gees, double ambientT, double dragKN, double liftKN, double liftSign)
         {
             ReentryNode hot = null;
             double best = double.NegativeInfinity;
@@ -405,7 +405,9 @@ namespace RP0.Reentry
                 Part = hot != null ? (hot.Part != null && hot.Part.partInfo != null ? hot.Part.partInfo.name : hot.Name) : "",
                 AoA = att.AoADeg, RefArea = att.Aero.ReferenceArea, BackgroundTempExposed = _lastBrtExposed, TrimPitch = att.Aero.LastTrimPitch,
                 Cl = q > 0.0 ? liftKN / (q * att.Aero.ReferenceArea) : 0.0,
-                Cd = q > 0.0 ? dragKN / (q * att.Aero.ReferenceArea) : 0.0
+                Cd = q > 0.0 ? dragKN / (q * att.Aero.ReferenceArea) : 0.0,
+                Sideslip = 0.0, LiftKN = liftKN, DragKN = dragKN, SideKN = 0.0,
+                WingLiftKN = liftSign * att.Aero.LastWingLiftKN, WingDragKN = att.Aero.LastWingDragKN
             };
             if (hot != null)
             {

@@ -28,11 +28,16 @@ namespace RP0
             "atmosphericTemperature,externalTemperature,convectiveCoefficient," +
             "part,skinTemperature,skinMaxTemp,temperature,maxTemp," +
             "exposedArea,radiativeArea,convectionFlux,radiationFlux,skinToInternalFlux," +
-            "aoa,cl,cd,refArea,brtExposed,trimPitch";
+            "aoa,cl,cd,refArea,brtExposed,trimPitch," +
+            "sideslip,liftKN,dragKN,sideKN,wingLiftKN,wingDragKN";
 
         // FAR's flight readouts, by reflection (FARAPI is public static). Optional: blank columns without FAR.
         private static bool _farResolved;
-        private static System.Reflection.MethodInfo _farAoA, _farCl, _farCd, _farRefArea;
+        private static System.Reflection.MethodInfo _farAoA, _farCl, _farCd, _farRefArea, _farSideslip;
+        // Per-part aero forces: the voxel body's (FARAeroPartModule.worldSpaceAeroForce) and the wing model's
+        // (FARWingAerodynamicModel.worldSpaceForce), so lift can be split the way the editor sim reports it.
+        private static Type _farAeroModuleType, _farWingType;
+        private static System.Reflection.FieldInfo _farBodyForce, _farWingForce;
 
         private StreamWriter _writer;
         private string _path;
@@ -112,7 +117,10 @@ namespace RP0
             Append(sb, FarValue(_farCd, v));
             Append(sb, FarValue(_farRefArea, v));
             Append(sb, brtExposed);
-            Append(sb, v.ctrlState != null ? v.ctrlState.pitch : double.NaN, last: true);   // pitch input incl. SAS, for trim comparison
+            Append(sb, v.ctrlState != null ? v.ctrlState.pitch : double.NaN);   // pitch input incl. SAS, for trim comparison
+            Append(sb, FarValue(_farSideslip, v));
+            AeroForceBreakdown(v, out double lift, out double drag, out double side, out double wingLift, out double wingDrag);
+            Append(sb, lift); Append(sb, drag); Append(sb, side); Append(sb, wingLift); Append(sb, wingDrag, last: true);
 
             try
             {
@@ -266,6 +274,41 @@ namespace RP0
             catch { return double.NaN; }
         }
 
+        // Sum FAR's per-part forces (kN) and resolve them the way the editor sim does: drag along the
+        // airspeed, lift perpendicular to it in the symmetry plane (the roof side positive), side out of
+        // that plane. FAR's own flight Cl is the roof-axis component instead, cos(AoA) short of this.
+        private static void AeroForceBreakdown(Vessel v, out double lift, out double drag, out double side, out double wingLift, out double wingDrag)
+        {
+            lift = drag = side = wingLift = wingDrag = double.NaN;
+            if (!_farResolved) ResolveFar();
+            if (_farBodyForce == null || v.ReferenceTransform == null) return;
+            Vector3 vel = v.srf_velocity;
+            if (vel.sqrMagnitude < 1e-6) return;
+            Vector3 velNorm = vel.normalized;
+            Vector3 liftDir = Vector3.ProjectOnPlane(-v.ReferenceTransform.forward, velNorm);
+            if (liftDir.sqrMagnitude < 1e-6) liftDir = Vector3.ProjectOnPlane(v.ReferenceTransform.up, velNorm);
+            liftDir.Normalize();
+            Vector3 sideDir = Vector3.Cross(velNorm, liftDir);
+
+            Vector3 body = Vector3.zero, wing = Vector3.zero;
+            try
+            {
+                foreach (Part p in v.parts)
+                    foreach (PartModule m in p.Modules)
+                    {
+                        if (_farAeroModuleType.IsInstanceOfType(m)) body += (Vector3)_farBodyForce.GetValue(m);
+                        else if (_farWingType != null && _farWingType.IsInstanceOfType(m)) wing += (Vector3)_farWingForce.GetValue(m);
+                    }
+            }
+            catch { return; }
+            Vector3 total = body + wing;
+            lift = Vector3.Dot(total, liftDir);
+            drag = -Vector3.Dot(total, velNorm);
+            side = Vector3.Dot(total, sideDir);
+            wingLift = Vector3.Dot(wing, liftDir);
+            wingDrag = -Vector3.Dot(wing, velNorm);
+        }
+
         private static void ResolveFar()
         {
             _farResolved = true;
@@ -282,6 +325,14 @@ namespace RP0
                     _farCl = api.GetMethod("VesselLiftCoeff", flags, null, sig, null);
                     _farCd = api.GetMethod("VesselDragCoeff", flags, null, sig, null);
                     _farRefArea = api.GetMethod("VesselRefArea", flags, null, sig, null);
+                    _farSideslip = api.GetMethod("VesselSideslip", flags, null, sig, null);
+                    var pub = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance;
+                    _farAeroModuleType = la.assembly.GetType("FerramAerospaceResearch.FARAeroComponents.FARAeroPartModule");
+                    _farBodyForce = _farAeroModuleType?.GetField("worldSpaceAeroForce", pub);
+                    _farWingType = la.assembly.GetType("ferram4.FARWingAerodynamicModel");
+                    _farWingForce = _farWingType?.GetField("worldSpaceForce", pub);
+                    if (_farBodyForce == null) _farAeroModuleType = null;
+                    if (_farWingForce == null) _farWingType = null;
                     break;
                 }
             }

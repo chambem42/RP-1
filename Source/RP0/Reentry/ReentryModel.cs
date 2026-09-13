@@ -137,6 +137,9 @@ namespace RP0.Reentry
         double ReferenceArea { get; }
         /// <summary>Pitch control input (-1..1) the last Forces() call needed to trim, NaN when the model does not trim.</summary>
         double LastTrimPitch { get; }
+        /// <summary>The wing model's share of the last Forces() call (kN), NaN when the model has no wing/body split.</summary>
+        double LastWingLiftKN { get; }
+        double LastWingDragKN { get; }
         /// <summary>Drag and signed lift (kN) at the given dynamic pressure (kPa), Mach and pseudo-Reynolds drag multiplier.
         /// Positive lift is toward the vessel's "up" side; the caller flips it for a lift-down attitude.</summary>
         void Forces(double dynPresKPa, double mach, double altitude, double pseudoReDragMult, out double dragKN, out double liftKN);
@@ -166,6 +169,9 @@ namespace RP0.Reentry
         public double SkinTemperature, SkinMaxTemp, Temperature, MaxTemp;
         public double ExposedArea, RadiativeArea, ConvectionFlux, RadiationFlux, SkinToInternalFlux;
         public double AoA, Cl, Cd, RefArea, BackgroundTempExposed, TrimPitch;
+        // Force breakdown (kN): lift is perpendicular to the airspeed in the vessel's symmetry plane, side is
+        // out of that plane. The wing share is FAR's wing model; the rest is the voxel body.
+        public double Sideslip, LiftKN, DragKN, SideKN, WingLiftKN, WingDragKN;
     }
 
     /// <summary>One part's thermal inputs and state at one trace time, in the shape of the flight-side parts log.</summary>

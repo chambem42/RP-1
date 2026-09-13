@@ -315,7 +315,9 @@ namespace RP0
                             s.ExposedArea.ToString("G9", inv), s.RadiativeArea.ToString("G9", inv), s.ConvectionFlux.ToString("G9", inv),
                             s.RadiationFlux.ToString("G9", inv), s.SkinToInternalFlux.ToString("G9", inv),
                             s.AoA.ToString("G9", inv), s.Cl.ToString("G9", inv), s.Cd.ToString("G9", inv), s.RefArea.ToString("G9", inv),
-                            s.BackgroundTempExposed.ToString("G9", inv), s.TrimPitch.ToString("G9", inv) }));
+                            s.BackgroundTempExposed.ToString("G9", inv), s.TrimPitch.ToString("G9", inv),
+                            s.Sideslip.ToString("G9", inv), s.LiftKN.ToString("G9", inv), s.DragKN.ToString("G9", inv), s.SideKN.ToString("G9", inv),
+                            s.WingLiftKN.ToString("G9", inv), s.WingDragKN.ToString("G9", inv) }));
                     }
                 }
                 using (var w = new System.IO.StreamWriter(path.Replace(".csv", "") + ".parts.csv", false))
