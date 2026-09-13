@@ -64,6 +64,15 @@ namespace RP0.Reentry
             foreach (ReentryNode n in nodes) n.Part.DragCubes.SetDragWeights();
             foreach (ReentryNode n in nodes) { n.Part.DragCubes.RequestOcclusionUpdate(); n.Part.DragCubes.SetPartOcclusion(); }
 
+            // In flight FAR overwrites each cube's face areas with its voxel projected areas every tick
+            // (ModularFlightIntegratorRegisterer.UpdateThermodynamicsPre), so cross-section, depth, taper and
+            // the exposed/radiative areas all come from the voxelization. The editor voxelizes too; replay it.
+            int voxelParts = 0;
+            var voxelTotal = new double[nodes.Count];
+            for (int i = 0; i < nodes.Count; ++i)
+                if (FarPartAreas.TryApply(nodes[i].Part, out voxelTotal[i])) ++voxelParts;
+            att.VoxelAreas = voxelParts > 0;
+
             // RealHeat retunes the OcclusionCone statics from a flight-scene addon; match that here.
             RealHeatBridge.ApplyOcclusionSettings();
             var occ = new List<OcclusionData>(nodes.Count);
@@ -77,8 +86,10 @@ namespace RP0.Reentry
                     Part p = nodes[i].Part;
                     Vector3 dirLocal = -p.partTransform.InverseTransformDirection(velDir);
                     p.DragCubes.SetDrag(dirLocal, mach);
-                    nodes[i].RadiativeArea[m] = p.DragCubes.PostOcclusionArea;
-                    nodes[i].ExposedArea[m] = p.DragCubes.ExposedArea;
+                    // FAR: radiative area is the voxel total, exposed area the cube's (with voxel faces) capped at radiative.
+                    double radArea = voxelTotal[i] > 0.0 ? voxelTotal[i] : p.DragCubes.PostOcclusionArea;
+                    nodes[i].RadiativeArea[m] = radArea;
+                    nodes[i].ExposedArea[m] = voxelTotal[i] > 0.0 ? Math.Min(p.DragCubes.ExposedArea, radArea) : p.DragCubes.ExposedArea;
                     if (m == 0) nodes[i].DragCoeff = p.DragCubes.DragCoeff;
                 }
                 ComputeOcclusion(occ, velDir, MachSamples[m]);

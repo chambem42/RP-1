@@ -43,7 +43,7 @@ namespace RP0
                 return;
             }
             CelestialBody body = Planetarium.fetch.Home;
-            if (_attitude < 0) _attitude = EditorDriver.editorFacility == EditorFacility.VAB ? 0 : 1;
+            if (_attitude < 0) _attitude = DefaultAttitude(parts);
             if (EditorLogic.fetch.ship.shipFacility != EditorDriver.editorFacility)
             {
                 // FAR's editor sim and this analysis both take "forward" from the facility, so a craft
@@ -113,7 +113,7 @@ namespace RP0
                 DrawHorizontalSeparator();
                 GUILayout.Label(_summary);
                 if (_results != null) DrawGrid();
-                GUILayout.Label($"Aero: {_aeroSource}. Holding AoA is assumed, not checked. {_elapsedMs:N0} ms.", HighLogic.Skin.label);
+                GUILayout.Label($"Aero: {_aeroSource}. {_elapsedMs:N0} ms.", HighLogic.Skin.label);
             }
         }
 
@@ -196,7 +196,7 @@ namespace RP0
                 var attitudes = new ReentryAttitude[aoaSteps];
                 for (int ai = 0; ai < aoaSteps; ++ai)
                     attitudes[ai] = ReentryVesselBuilder.Build(parts, body, k, _aoaList[ai], shieldFirst, factory);
-                _aeroSource = $"{factory.LastSource}, {solver.ThermalModelDescription} heating" + (factory.TrimSummary.Length > 0 ? $"; {factory.TrimSummary}" : "");
+                _aeroSource = $"{factory.LastSource}, {(attitudes[0].VoxelAreas ? "FAR voxel" : "drag cube")} areas, {solver.ThermalModelDescription} heating" + (factory.TrimSummary.Length > 0 ? $"; {factory.TrimSummary}" : "");
 
                 _results = new List<ReentryResult>(peSteps * aoaSteps);
                 var corridor = new Dictionary<double, KeyValuePair<double, double>>();
@@ -282,7 +282,7 @@ namespace RP0
                 var factory = new DefaultAeroFactory();
                 if (FarEditorAero.Ready) FarEditorAero.LogAlphaSweep(body, 25.0, 80000.0);
                 ReentryAttitude att = ReentryVesselBuilder.Build(parts, body, k, aoa, _attitude == 0, factory);
-                _aeroSource = $"{factory.LastSource}, {solver.ThermalModelDescription} heating" + (factory.TrimSummary.Length > 0 ? $"; {factory.TrimSummary}" : "");
+                _aeroSource = $"{factory.LastSource}, {(att.VoxelAreas ? "FAR voxel" : "drag cube")} areas, {solver.ThermalModelDescription} heating" + (factory.TrimSummary.Length > 0 ? $"; {factory.TrimSummary}" : "");
                 if (!solver.TryEntryState(sp.SimOrbitPe, sp.SimReentryArrival, sp.SimOrbitAp, sp.SimEntrySpeed, sp.SimEntryAltitude,
                                           out double v0, out double fpa, out string err))
                 {
@@ -331,7 +331,7 @@ namespace RP0
                             s.HeatConvectiveConstant.ToString("G9", inv), s.EmissiveConstant.ToString("G9", inv) }));
                     }
                 }
-                _summary = $"Predicted (Pe {sp.SimOrbitPe / 1000:N0} km, entry {v0:N0} m/s at {fpa:N2}°, AoA {aoa:N0}°): {Describe(r.Outcome)} - " +
+                _summary = $"Predicted (Pe {sp.SimOrbitPe / 1000:N0} km, entry {v0:N0} m/s at {fpa:N2}°, AoA {aoa:N0}° {(_attitude == 0 ? "shield first" : "nose first")}): {Describe(r.Outcome)} - " +
                            $"peak skin {r.PeakSkin:N0} K ({r.PeakSkinFrac * 100:N0}%) on {r.LimitingPart}, {r.PeakG:N1} g, {r.Duration:N0} s.\n" +
                            $"Wrote {trace.Count} rows to {System.IO.Path.GetFileName(path)} (+ .parts.csv)" + (factory.TrimSummary.Length > 0 ? $"\n{factory.TrimSummary}" : "");
             }
@@ -343,6 +343,28 @@ namespace RP0
             sw.Stop();
             _elapsedMs = sw.Elapsed.TotalMilliseconds;
             TopWindow.ResetSize();
+        }
+
+        // Which way round the vehicle enters is a property of the vehicle, not of the building it was
+        // built in: anything with wings or control surfaces flies nose first; a heat shield with no
+        // wings goes shield first. Only fall back to the facility when neither says anything.
+        private static int DefaultAttitude(List<Part> parts)
+        {
+            bool wings = false, shield = false;
+            foreach (Part p in parts)
+            {
+                foreach (PartModule m in p.Modules)
+                {
+                    string n = m.moduleName;
+                    if (m is ModuleLiftingSurface || m is ModuleControlSurface || n == "FARWingAerodynamicModel" || n == "FARControllableSurface")
+                        wings = true;
+                    else if (m is ModuleAblator)
+                        shield = true;
+                }
+            }
+            if (wings) return 1;
+            if (shield) return 0;
+            return EditorDriver.editorFacility == EditorFacility.VAB ? 0 : 1;
         }
 
         // Lower is better: survival first, then thermal margin, then gentleness.

@@ -147,6 +147,8 @@ namespace RP0.Reentry
         public List<ReentryNode> Nodes = new List<ReentryNode>();
         public IReentryAero Aero;
         public double MassT;
+        /// <summary>True when FAR's voxel projected areas replaced the drag-cube faces, as in flight.</summary>
+        public bool VoxelAreas;
     }
 
     public enum ReentryOutcome { Landed, SkippedOut, SkinOverheat, InternalOverheat, AblatorExhausted, TimedOut }

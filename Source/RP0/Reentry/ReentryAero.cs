@@ -376,6 +376,84 @@ namespace RP0.Reentry
             return r0 + (r1 - r0) * af;
         }
     }
+    /// <summary>
+    /// FAR's per-part voxel projected areas (FARAeroPartModule.ProjectedAreas), applied to the part's drag
+    /// cube the way FAR's flight integrator hook does, so the editor's occlusion geometry and areas match
+    /// what the game uses in flight.
+    /// </summary>
+    public static class FarPartAreas
+    {
+        private static bool _resolved;
+        private static PropertyInfo _areasProp;
+        private static FieldInfo[] _faceFields;
+        private static FieldInfo _totalField;
+        private static int[] _faceMap;
+
+        private static void Resolve()
+        {
+            _resolved = true;
+            try
+            {
+                foreach (AssemblyLoader.LoadedAssembly la in AssemblyLoader.loadedAssemblies)
+                {
+                    if (la.name != "FerramAerospaceResearch") continue;
+                    Type module = la.assembly.GetType("FerramAerospaceResearch.FARAeroComponents.FARAeroPartModule");
+                    if (module == null) break;
+                    const BindingFlags any = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
+                    _areasProp = module.GetProperty("ProjectedAreas", any);
+                    Type area = _areasProp?.PropertyType;
+                    if (area == null) break;
+                    // Field order matches the struct's indexer and FaceMap: iP, iN, jP, jN, kP, kN.
+                    string[] names = { "iP", "iN", "jP", "jN", "kP", "kN" };
+                    _faceFields = new FieldInfo[6];
+                    for (int i = 0; i < 6; ++i) _faceFields[i] = area.GetField(names[i], any);
+                    _totalField = area.GetField("totalArea", any);
+                    FieldInfo map = area.GetField("FaceMap", any);
+                    _faceMap = map != null ? map.GetValue(null) as int[] : null;
+                    if (_faceMap == null || _faceMap.Length != 6)
+                        _faceMap = new[] { (int)DragCube.DragFace.XP, (int)DragCube.DragFace.XN, (int)DragCube.DragFace.YP,
+                                           (int)DragCube.DragFace.YN, (int)DragCube.DragFace.ZP, (int)DragCube.DragFace.ZN };
+                    break;
+                }
+            }
+            catch (Exception ex)
+            {
+                RP0Debug.LogWarning($"FAR part areas unavailable: {ex.Message}");
+                _areasProp = null;
+            }
+        }
+
+        /// <summary>
+        /// Copies the part's voxel face areas into its drag cube's occluded-area array, as FAR does in flight.
+        /// Returns false (and leaves the cube alone) when FAR is absent or this part has no voxelization yet.
+        /// </summary>
+        public static bool TryApply(Part part, out double totalArea)
+        {
+            totalArea = 0.0;
+            if (!_resolved) Resolve();
+            if (_areasProp == null || part == null || part.DragCubes == null || part.DragCubes.None) return false;
+            PartModule module = null;
+            foreach (PartModule m in part.Modules)
+                if (m.GetType().Name == "FARAeroPartModule") { module = m; break; }
+            if (module == null) return false;
+            try
+            {
+                object areas = _areasProp.GetValue(module, null);
+                totalArea = _totalField != null ? Convert.ToDouble(_totalField.GetValue(areas)) : 0.0;
+                if (!(totalArea > 0.0)) return false;
+                float[] occluded = part.DragCubes.AreaOccluded;
+                for (int j = 0; j < 6; ++j)
+                    if (_faceFields[j] != null) occluded[_faceMap[j]] = (float)Convert.ToDouble(_faceFields[j].GetValue(areas));
+                return true;
+            }
+            catch (Exception)
+            {
+                totalArea = 0.0;
+                return false;
+            }
+        }
+    }
+
     /// <summary>Picks FAR when it is present and voxelized, otherwise stock drag cubes.</summary>
     public class DefaultAeroFactory : IReentryAeroFactory
     {
