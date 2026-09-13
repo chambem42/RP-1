@@ -349,14 +349,16 @@ namespace RP0.Reentry
                     double skinSkin = splitSkin ? skinSkinK * (n.SkinTemperature - n.SkinUnexposedTemperature) : 0.0;
 
                     n.Temperature += (skinInt + unexpSkinInt) * cf / n.ThermalMass * h;
-                    n.SkinTemperature += ((convFlux + expRad - ablFlux) + (-skinSkin - skinInt) * cf) * skinRecip * expMassMult * h;
+                    // Stock scales convection and conduction by the convergence factor (thermalConvectionFlux = convectionFlux * cf),
+                    // radiation and ablation not.
+                    n.SkinTemperature += ((convFlux * cf + expRad - ablFlux) + (-skinSkin - skinInt) * cf) * skinRecip * expMassMult * h;
                     if (splitSkin)
                         n.SkinUnexposedTemperature += (unexpRad + (skinSkin - unexpSkinInt) * cf) * skinRecip * unexpMassMult * h;
 
                     if (n.Temperature < _k.SpaceTemperature) n.Temperature = _k.SpaceTemperature;
                     if (n.SkinTemperature < _k.SpaceTemperature) n.SkinTemperature = _k.SpaceTemperature;
                     if (n.SkinUnexposedTemperature < _k.SpaceTemperature) n.SkinUnexposedTemperature = _k.SpaceTemperature;
-                    if (convFlux > 0.0) n.HeatLoad += convFlux * h;
+                    if (convFlux > 0.0) n.HeatLoad += convFlux * cf * h;
                     lastRad = expRad + unexpRad;
                     lastSkinInt = (skinInt + unexpSkinInt) * cf;
                 }
