@@ -94,6 +94,7 @@ namespace RP0.Reentry
         private static FieldInfo _instantSimField, _wingListField, _maxCrossSectionField, _bodyLengthField;
         private static FieldInfo _inAlpha, _inPhi, _inMach, _inPitch, _outCl, _outCd, _outCm, _outWingCl, _outWingCd;
         private static MethodInfo _getClCdCm, _forFlightPoint;
+        private static bool _forFlightPointTakesExtT;
         private static FieldInfo _wingAreaField;
 
         /// <summary>Altitudes (m) the flight-condition sampling is taken at, when supported.</summary>
@@ -302,8 +303,15 @@ namespace RP0.Reentry
                     // Optional, fork-only: per-sample flight conditions.
                     _aeroConditionProp = _simType.GetProperty("AeroCondition", any);
                     if (condType != null)
+                    {
+                        // Newer fork: takes the external (post-shock) temperature for the wing model's Reynolds number.
                         _forFlightPoint = condType.GetMethod("ForFlightPoint", any, null,
-                                                             new[] { typeof(CelestialBody), typeof(double), typeof(double), typeof(double) }, null);
+                                                             new[] { typeof(CelestialBody), typeof(double), typeof(double), typeof(double), typeof(double?) }, null);
+                        _forFlightPointTakesExtT = _forFlightPoint != null;
+                        if (_forFlightPoint == null)
+                            _forFlightPoint = condType.GetMethod("ForFlightPoint", any, null,
+                                                                 new[] { typeof(CelestialBody), typeof(double), typeof(double), typeof(double) }, null);
+                    }
 
                     _available = _instanceProp != null && _instantSimField != null && _getClCdCm != null
                                  && _inAlpha != null && _inMach != null && _outCl != null && _outCd != null;
@@ -356,6 +364,30 @@ namespace RP0.Reentry
             double density = body.GetDensity(pressure, temp);
             double speed = mach * body.GetSpeedOfSound(pressure, density);
             return 0.0005 * density * speed * speed;
+        }
+
+        /// <summary>
+        /// FAR's flight-point condition at (altitude, Mach), with the external temperature the flight scene
+        /// would report there - RealHeat's when it is installed, else FAR's own stock formula - so the wing
+        /// model's Reynolds number matches flight.
+        /// </summary>
+        private static object FlightPointCondition(CelestialBody body, double altitude, double mach, double lengthScale)
+        {
+            if (!_forFlightPointTakesExtT) return _forFlightPoint.Invoke(null, new object[] { body, altitude, mach, lengthScale });
+            double? extT = null;
+            RealHeatBridge rh = RealHeatBridge.For(body);
+            if (rh != null)
+            {
+                double pressure = body.GetPressure(altitude);
+                double ambient = body.GetTemperature(altitude);
+                if (pressure > 0.0)
+                {
+                    double density = body.GetDensity(pressure, ambient);
+                    double speed = mach * body.GetSpeedOfSound(pressure, density);
+                    extT = ambient + rh.TempRise(speed);
+                }
+            }
+            return _forFlightPoint.Invoke(null, new object[] { body, altitude, mach, lengthScale, extT });
         }
 
         private static object InstantSim()
@@ -414,7 +446,7 @@ namespace RP0.Reentry
                     {
                         if (_flightConditions)
                         {
-                            object cond = _forFlightPoint.Invoke(null, new object[] { body, _alt[ai], _mach[m], lengthScale });
+                            object cond = FlightPointCondition(body, _alt[ai], _mach[m], lengthScale);
                             _aeroConditionProp.SetValue(sim, cond, null);
                         }
                         _inMach.SetValue(input, _mach[m]);
@@ -474,7 +506,7 @@ namespace RP0.Reentry
                 for (int pass = 0; pass < (flight ? 2 : 1); ++pass)
                 {
                     if (flight)
-                        _aeroConditionProp.SetValue(sim, pass == 1 ? _forFlightPoint.Invoke(null, new object[] { body, altitude, mach, lengthScale }) : null, null);
+                        _aeroConditionProp.SetValue(sim, pass == 1 ? FlightPointCondition(body, altitude, mach, lengthScale) : null, null);
                     sb.Append(pass == 1 ? $"\n  at {altitude / 1000:N0} km flight conditions:" : "\n  continuum (stock path):");
                     // Fork-only split of the total into wing and body contributions, when the output carries it.
                     FieldInfo wingCl = _outputType.GetField("WingCl"), bodyCl = _outputType.GetField("BodyCl");
@@ -516,7 +548,7 @@ namespace RP0.Reentry
             var sb = new System.Text.StringBuilder();
             try
             {
-                if (flight) _aeroConditionProp.SetValue(sim, _forFlightPoint.Invoke(null, new object[] { body, altitude, mach, lengthScale }), null);
+                if (flight) _aeroConditionProp.SetValue(sim, FlightPointCondition(body, altitude, mach, lengthScale), null);
                 object[] args = { input, null, true, true };
                 _getClCdCm.Invoke(sim, args);
                 sb.Append($"[ReentryWings] editor alt {altitude / 1000:N0} km, Mach {mach:N0}, alpha {alpha:N1}, pitch {pitch:N2}: " +

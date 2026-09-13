@@ -68,18 +68,23 @@ namespace RP0
             _faded.Clear();
         }
 
-        // Any change to the ship invalidates the prediction the tint came from.
+        // Any change to the ship invalidates the prediction the tint came from. KSP's EventData.Add
+        // dereferences the handler's target, so the handlers must live on an instance, not be static.
+        private sealed class Listener
+        {
+            public void OnShipModified(ShipConstruct s) => Clear();
+            public void OnEditorLoad(ShipConstruct s, CraftBrowserDialog.LoadType t) => Clear();
+            public void OnSceneChange(GameScenes s) { _tinted.Clear(); _faded.Clear(); }
+        }
+        private static readonly Listener _listener = new Listener();
+
         private static void Hook()
         {
             if (_hooked) return;
             _hooked = true;
-            GameEvents.onEditorShipModified.Add(OnShipModified);
-            GameEvents.onEditorLoad.Add(OnEditorLoad);
-            GameEvents.onGameSceneLoadRequested.Add(OnSceneChange);
+            GameEvents.onEditorShipModified.Add(_listener.OnShipModified);
+            GameEvents.onEditorLoad.Add(_listener.OnEditorLoad);
+            GameEvents.onGameSceneLoadRequested.Add(_listener.OnSceneChange);
         }
-
-        private static void OnShipModified(ShipConstruct s) => Clear();
-        private static void OnEditorLoad(ShipConstruct s, CraftBrowserDialog.LoadType t) => Clear();
-        private static void OnSceneChange(GameScenes s) { _tinted.Clear(); _faded.Clear(); }
     }
 }

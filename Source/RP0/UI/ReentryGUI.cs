@@ -323,7 +323,7 @@ namespace RP0
                 ReentryAttitude att;
                 try { att = ReentryVesselBuilder.Build(parts, body, k, aoa, _attitude == 0, factory); }
                 finally { ReentryVesselBuilder.DebugOcclusionMach = -1.0; }
-                _aeroSource = $"{factory.LastSource}, {(att.VoxelAreas ? "FAR voxel" : "drag cube")} areas, {solver.ThermalModelDescription} heating" + (factory.TrimSummary.Length > 0 ? $"; {factory.TrimSummary}" : "") + CryoNote(att);
+                _aeroSource = $"{factory.LastSource}, {(att.VoxelAreas ? "FAR voxel" : "drag cube")} areas, {solver.ThermalModelDescription} heating" + CryoNote(att);
                 if (!solver.TryEntryState(sp.SimOrbitPe, sp.SimReentryArrival, sp.SimOrbitAp, sp.SimEntrySpeed, sp.SimEntryAltitude,
                                           out double v0, out double fpa, out string err))
                 {
