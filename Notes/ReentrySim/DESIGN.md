@@ -426,6 +426,20 @@ AoA, 4x physics warp, `Reentry_Predict` + `Reentry_Fly`, see `KSPUITest/Source/T
 - **Remaining:** the interior still leads flight by ~3 km (predicted limit at ~80 km vs flown
   77 km), which is the 293 K start against a cryogenic 99 K; the engines are still over-predicted
   (elevons deflected to the stop in flight shade them); part-to-part conduction is absent.
+- **Cryogenic tanks start cold.** RealFuels pins a fuelled tank's interior to its coldest
+  propellant's boiling point (`CalculateLowestTankTemperature`) when it is fuelled on the pad,
+  and a KCT simulation passes through the pad. The bridge reads the same tank list, so the
+  fuselage tank starts at 90 K and matches flight at the interface (148 vs 151 K at 96 km).
+- **Trim-limited angle of attack.** Where full deflection cannot hold the requested AoA, the
+  solve now finds the angle whose leftover moment the reaction wheels and RCS can absorb
+  (`tau / (q S MAC)` as a Cm budget per grid point). In this flight the elevator pins at 1.00
+  from 90 km and the AoA sags to 39-40 deg; the model does not reproduce that because (a) the
+  summed RCS budget (94 kN m) far exceeds the editor's leftover moment there (9 kN m) - either
+  MechJeb is not getting that torque out of the RCS or FAR's editor elevator is stronger than
+  flight's - and (b) even at zero budget the editor's Cm slope in alpha is steep enough that
+  the sag is only 0.8 deg. Net: the prediction still reaches each altitude ~9 % late, and the
+  fuselage tank's interior reads 106 % vs 91 % at 78 km; it calls the failure at ~79 km where
+  flight lost the vehicle at 77 km.
 - **FAR quirk found on the way:** a vessel re-voxelized (staging) while RCS is slewing it gets
   every part's projected area scaled by ~sqrt(2) for the rest of the flight - the voxel frame and
   the meshes are sampled at different attitudes. Stage, let it settle, then manoeuvre.

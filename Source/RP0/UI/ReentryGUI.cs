@@ -177,7 +177,8 @@ namespace RP0
             int n = 0; double coldest = double.MaxValue;
             foreach (ReentryNode node in att.Nodes)
                 if (!double.IsNaN(node.InternalStartTemperature)) { ++n; coldest = Math.Min(coldest, node.InternalStartTemperature); }
-            return n > 0 ? $"; {n} cryogenic tank{(n == 1 ? "" : "s")} start at {coldest:N0} K" : "";
+            string cryo = n > 0 ? $"; {n} cryogenic tank{(n == 1 ? "" : "s")} start at {coldest:N0} K" : "";
+            return cryo + $"; {att.ControlTorqueKNm:N0} kN m of wheel/RCS pitch torque";
         }
 
         // FAR voxelizes a craft a moment after it loads or changes; running before that would silently fall

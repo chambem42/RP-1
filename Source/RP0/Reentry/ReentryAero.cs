@@ -109,6 +109,8 @@ namespace RP0.Reentry
         private int _untrimmable;
         private double _maxTrimPitch;
         private double _lastWingCl, _lastWingCd;           // from the most recent EvalCm
+        private double _lastResidualCm;
+        public static bool DebugTrim = false;
 
         public string Description => (_flightConditions ? "FAR editor aero at flight Re/Kn" : "FAR editor aero (continuum)") + ", trimmed";
 
@@ -152,25 +154,33 @@ namespace RP0.Reentry
         }
 
         // When full deflection cannot hold the requested angle, the vehicle does not hold it: it settles
-        // where the moment at the stop is zero. Flight shows exactly that (AoA sagging from 42 to 39 deg
-        // with the elevator pinned), so find that angle by secant on alpha at the stop and take its Cl/Cd.
-        // Returns the achieved alpha, or the requested one if no root is found within reach.
-        private double SolveAlphaAtStop(object sim, object input, double alphaReq, double stop, out double cl, out double cd)
+        // where the moment the elevator leaves over equals what the reaction wheels and RCS can add.
+        // Flight shows exactly that (AoA sagging from 42 to 39 deg with the elevator pinned once the
+        // air is thick enough, holding 42 above that on RCS). cmBudget is that torque as a coefficient at
+        // this flight point; the secant on alpha at the stop finds where |Cm| falls to it. Returns the
+        // achieved alpha, or the requested one when it is within budget or no root is found nearby.
+        private double SolveAlphaAtStop(object sim, object input, double alphaReq, double stop, double cmBudget, out double cl, out double cd)
         {
             _inPitch.SetValue(input, stop);
-            double a0 = alphaReq, c0 = EvalCmAtAlpha(sim, input, a0, out cl, out cd);
-            double a1 = alphaReq - Math.Sign(alphaReq == 0.0 ? 1.0 : alphaReq) * 4.0;
-            double c1 = EvalCmAtAlpha(sim, input, a1, out double cl1, out double cd1);
+            double a0 = alphaReq, r0 = EvalCmAtAlpha(sim, input, a0, out cl, out cd);
+            _lastResidualCm = r0;
+            double target = Math.Sign(r0) * cmBudget;   // aero residual the control torque can cancel
+            double c0 = r0 - target;
             double best = alphaReq;
-            for (int i = 0; i < 6; ++i)
+            if (Math.Abs(r0) > cmBudget)
             {
-                if (Math.Abs(c1 - c0) < 1e-9) break;
-                double a2 = a1 - c1 * (a1 - a0) / (c1 - c0);
-                if (Math.Abs(a2 - alphaReq) > 25.0) break;           // the root is not near: give up
-                double c2 = EvalCmAtAlpha(sim, input, a2, out cl1, out cd1);
-                a0 = a1; c0 = c1; a1 = a2; c1 = c2;
-                if (Math.Abs(c1) < 1e-4) { best = a1; cl = cl1; cd = cd1; break; }
-                best = a1; cl = cl1; cd = cd1;
+                double a1 = alphaReq - Math.Sign(alphaReq == 0.0 ? 1.0 : alphaReq) * 4.0;
+                double c1 = EvalCmAtAlpha(sim, input, a1, out double cl1, out double cd1) - target;
+                for (int i = 0; i < 6; ++i)
+                {
+                    if (Math.Abs(c1 - c0) < 1e-9) break;
+                    double a2 = a1 - c1 * (a1 - a0) / (c1 - c0);
+                    if (Math.Abs(a2 - alphaReq) > 25.0) break;           // the root is not near: give up
+                    double c2 = EvalCmAtAlpha(sim, input, a2, out cl1, out cd1) - target;
+                    a0 = a1; c0 = c1; a1 = a2; c1 = c2;
+                    best = a1; cl = cl1; cd = cd1;
+                    if (Math.Abs(c1) < 1e-4) break;
+                }
             }
             _inAlpha.SetValue(input, alphaReq);
             _inPitch.SetValue(input, 0.0);
@@ -293,13 +303,41 @@ namespace RP0.Reentry
             return Math.Atan2(-Vector3.Dot(craftUp, right), Vector3.Dot(craftUp, up)) * 180.0 / Math.PI;
         }
 
+        // The sim's own normalisation: coefficients per the summed wing area and the area-weighted MAC, or
+        // the body's cross-section and length for a wingless vehicle (InstantConditionSim.GetClCdCmSteady).
+        private static void ReferenceGeometry(object sim, out double area, out double mac)
+        {
+            area = 0.0; mac = 0.0;
+            if (_wingListField != null && _wingAreaField != null && _wingListField.GetValue(sim) is System.Collections.IEnumerable wings)
+                foreach (object w in wings)
+                {
+                    if (w == null) continue;
+                    double s = Convert.ToDouble(_wingAreaField.GetValue(w));
+                    area += s;
+                    mac += Num(w, "GetMAC") * s;
+                }
+            if (area > 1e-6) { mac /= area; return; }
+            if (_maxCrossSectionField != null) area = Convert.ToDouble(_maxCrossSectionField.GetValue(sim));
+            if (_bodyLengthField != null) mac = Convert.ToDouble(_bodyLengthField.GetValue(sim));
+        }
+
+        private static double DynamicPressureKPa(CelestialBody body, double altitude, double mach)
+        {
+            double pressure = body.GetPressure(altitude);
+            if (pressure <= 0.0) return 0.0;
+            double temp = body.GetTemperature(altitude);
+            double density = body.GetDensity(pressure, temp);
+            double speed = mach * body.GetSpeedOfSound(pressure, density);
+            return 0.0005 * density * speed * speed;
+        }
+
         private static object InstantSim()
         {
             object gui = _instanceProp.GetValue(null, null);
             return gui == null ? null : _instantSimField.GetValue(gui);
         }
 
-        public FarEditorAero(CelestialBody body, double aoaDeg, bool shieldFirst, Vector3 forward, Vector3 up, Vector3 liftAxis)
+        public FarEditorAero(CelestialBody body, double aoaDeg, bool shieldFirst, Vector3 forward, Vector3 up, Vector3 liftAxis, double controlTorqueKNm = 0.0)
         {
             object sim = InstantSim();
             if (sim == null) throw new InvalidOperationException("FAR editor sim not running");
@@ -336,6 +374,7 @@ namespace RP0.Reentry
             object input = Activator.CreateInstance(_inputType);
             _inAlpha.SetValue(input, alpha);
             _inPhi?.SetValue(input, FacilityRoll(up));
+            ReferenceGeometry(sim, out double refAreaEarly, out double refMac);
             double lengthScale = _flightConditions ? Math.Max(1.0, Convert.ToDouble(_bodyLengthField.GetValue(sim))) : 1.0;
             try
             {
@@ -355,7 +394,13 @@ namespace RP0.Reentry
                         if (!trimmed)
                         {
                             _untrimmable++;
-                            _alpha[ai, m] = SolveAlphaAtStop(sim, input, alpha, _trimPitch[ai, m], out _cl[ai, m], out _cd[ai, m]);
+                            // Cm is per q * S * MAC; the wheels/RCS torque as a coefficient at this altitude and Mach.
+                            double q = _flightConditions ? DynamicPressureKPa(body, _alt[ai], _mach[m]) : 0.0;
+                            double cmBudget = q > 0.0 && refMac > 0.0 ? controlTorqueKNm / (q * refAreaEarly * refMac) : double.MaxValue;
+                            _alpha[ai, m] = SolveAlphaAtStop(sim, input, alpha, _trimPitch[ai, m], cmBudget, out _cl[ai, m], out _cd[ai, m]);
+                            if (DebugTrim)
+                                RP0Debug.Log($"[ReentryTrim] alt {_alt[ai] / 1000:N0} km Mach {_mach[m]:N1} q {q:N3} kPa: stop {_trimPitch[ai, m]:N2} leaves Cm {_lastResidualCm:N4} " +
+                                             $"= {Math.Abs(_lastResidualCm) * q * refAreaEarly * refMac:N1} kN m vs budget {controlTorqueKNm:N1}; held alpha {_alpha[ai, m]:N1}", true);
                         }
                         _wingCl[ai, m] = _lastWingCl;
                         _wingCd[ai, m] = _lastWingCd;
@@ -370,12 +415,7 @@ namespace RP0.Reentry
                 if (_flightConditions) _aeroConditionProp.SetValue(sim, null, null);
             }
 
-            _refArea = 0.0;
-            if (_wingListField != null && _wingAreaField != null && _wingListField.GetValue(sim) is System.Collections.IEnumerable wings)
-                foreach (object w in wings)
-                    if (w != null) _refArea += Convert.ToDouble(_wingAreaField.GetValue(w));
-            if (_refArea <= 1e-6 && _maxCrossSectionField != null)
-                _refArea = Convert.ToDouble(_maxCrossSectionField.GetValue(sim));
+            _refArea = refAreaEarly;
             if (_refArea <= 1e-6) throw new InvalidOperationException("FAR reference area is zero");
         }
 
@@ -611,13 +651,13 @@ namespace RP0.Reentry
             : $"trim needs up to {MaxTrimPitch:P0} elevator";
 
         public IReentryAero Create(CelestialBody body, List<ReentryNode> nodes, Vector3 velDir, Vector3 liftAxis, Vector3 forward, Vector3 up,
-                                   double aoaDeg, bool shieldFirst, ReentryConstants k)
+                                   double aoaDeg, bool shieldFirst, ReentryConstants k, double controlTorqueKNm)
         {
             if (PreferFar && FarEditorAero.Ready)
             {
                 try
                 {
-                    var far = new FarEditorAero(body, aoaDeg, shieldFirst, forward, up, liftAxis);
+                    var far = new FarEditorAero(body, aoaDeg, shieldFirst, forward, up, liftAxis, controlTorqueKNm);
                     if (far.MaxTrimPitch > MaxTrimPitch) MaxTrimPitch = far.MaxTrimPitch;
                     Untrimmable += far.UntrimmableSamples;
                     TotalSamples += far.TotalSamples;

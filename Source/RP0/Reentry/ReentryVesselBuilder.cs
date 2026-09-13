@@ -126,9 +126,56 @@ namespace RP0.Reentry
 
             att.Nodes = nodes;
             att.MassT = Math.Max(massT, 0.001);
-            att.Aero = aeroFactory.Create(body, nodes, velDir, liftAxis, forward, up, aoaDeg, shieldFirst, k);
+            att.ControlTorqueKNm = PitchControlTorque(parts, right);
+            att.Aero = aeroFactory.Create(body, nodes, velDir, liftAxis, forward, up, aoaDeg, shieldFirst, k, att.ControlTorqueKNm);
             return att;
         }
+
+        /// <summary>
+        /// Pitch torque (kN m) the vessel can add to what the control surfaces give: reaction wheels plus RCS.
+        /// Flight holds the angle of attack with these where the elevator alone cannot (thin air), so the trim
+        /// limit only bites once the aerodynamic moment outgrows them. RCS is counted at half its summed lever
+        /// torque, since only the thrusters on one side fire for a given direction.
+        /// </summary>
+        public static double PitchControlTorque(List<Part> parts, Vector3 pitchAxis)
+        {
+            Vector3 com = Vector3.zero;
+            double mass = 0.0;
+            foreach (Part p in parts)
+            {
+                if (p == null || p.physicalSignificance == Part.PhysicalSignificance.NONE) continue;
+                double m = p.mass + p.GetResourceMass();
+                com += p.transform.TransformPoint(p.CoMOffset) * (float)m;
+                mass += m;
+            }
+            if (mass > 0.0) com /= (float)mass;
+
+            double wheels = 0.0, rcs = 0.0;
+            foreach (Part p in parts)
+            {
+                if (p == null || p.FindModuleImplementing<LaunchClamp>() != null) continue;
+                foreach (ModuleReactionWheel rw in p.FindModulesImplementing<ModuleReactionWheel>())
+                    wheels += rw.PitchTorque;
+                foreach (ModuleRCS r in p.FindModulesImplementing<ModuleRCS>())
+                {
+                    if (r.thrusterTransforms == null) continue;
+                    double partRcs = 0.0;
+                    foreach (Transform t in r.thrusterTransforms)
+                    {
+                        if (t == null) continue;
+                        Vector3 force = -t.up * r.thrusterPower;   // exhaust goes along +up
+                        partRcs += Math.Abs(Vector3.Dot(Vector3.Cross(t.position - com, force), pitchAxis));
+                    }
+                    if (FarEditorAero.DebugTrim)
+                        RP0Debug.Log($"[ReentryAero] RCS {p.partInfo?.name}: {r.thrusterTransforms.Count} nozzles x {r.thrusterPower:N3} kN, lever {((t0(r) - com).magnitude):N1} m -> {partRcs:N1} kN m", true);
+                    rcs += partRcs;
+                }
+            }
+            RP0Debug.Log($"[ReentryAero] pitch control torque: wheels {wheels:N1} kN m, RCS {rcs:N1} kN m summed ({0.5 * rcs:N1} usable)", true);
+            return wheels + 0.5 * rcs;
+        }
+
+        private static Vector3 t0(ModuleRCS r) => r.thrusterTransforms.Count > 0 && r.thrusterTransforms[0] != null ? r.thrusterTransforms[0].position : Vector3.zero;
 
         // The editor's world frame for the vessel, matching FAR's InstantConditionSim conventions.
         public static void EditorFrame(out Vector3 forward, out Vector3 up, out Vector3 right)
@@ -266,6 +313,6 @@ namespace RP0.Reentry
     public interface IReentryAeroFactory
     {
         IReentryAero Create(CelestialBody body, List<ReentryNode> nodes, Vector3 velDir, Vector3 liftAxis, Vector3 forward, Vector3 up,
-                            double aoaDeg, bool shieldFirst, ReentryConstants k);
+                            double aoaDeg, bool shieldFirst, ReentryConstants k, double controlTorqueKNm);
     }
 }
