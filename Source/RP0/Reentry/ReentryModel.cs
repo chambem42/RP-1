@@ -107,6 +107,8 @@ namespace RP0.Reentry
         public double PeakSkin, PeakInternal, HeatLoad;
         // Last step's values, for the trace
         public double LastConvectionFlux, LastRadiationFlux, LastSkinToInternalFlux, LastExposedArea, LastRadiativeArea;
+        public double LastTempMult, LastCoeffMult, LastAreaMult;
+        public bool IsEngine;
 
         public void Reset(double startTemp)
         {
@@ -158,6 +160,21 @@ namespace RP0.Reentry
         public double SkinTemperature, SkinMaxTemp, Temperature, MaxTemp;
         public double ExposedArea, RadiativeArea, ConvectionFlux, RadiationFlux, SkinToInternalFlux;
         public double AoA, Cl, Cd, RefArea, BackgroundTempExposed, TrimPitch;
+    }
+
+    /// <summary>One part's thermal inputs and state at one trace time, in the shape of the flight-side parts log.</summary>
+    public struct ReentryPartSample
+    {
+        public double Time, Altitude;
+        public string Part;
+        public double SkinTemperature, SkinMaxTemp, Temperature, MaxTemp, SkinUnexposedTemperature;
+        public double ExposedArea, RadiativeArea, SkinExposedAreaFrac, TempMult, CoeffMult, AreaMult;
+        public double ConvectionFlux, RadiationFlux, SkinToInternalFlux, SkinThermalMass, ThermalMass, HeatConvectiveConstant, EmissiveConstant;
+
+        public const string Header =
+            "ut,missionTime,altitude,part,skinTemperature,skinMaxTemp,temperature,maxTemp,skinUnexposedTemperature," +
+            "exposedArea,radiativeArea,skinExposedAreaFrac,convTempMult,convCoeffMult,convAreaMult," +
+            "convectionFlux,radiationFlux,skinToInternalFlux,skinThermalMass,thermalMass,heatConvectiveConstant,emissiveConstant";
     }
 
     public class ReentryResult

@@ -55,6 +55,7 @@ namespace RP0.Reentry
                     ConvectionAreaMult = new double[MachSamples.Length],
                 };
                 ReadAblator(p, n);
+                n.IsEngine = p.FindModuleImplementing<ModuleEngines>() != null;
                 nodes.Add(n);
                 ptds.Add(new PartThermalData(p));
             }

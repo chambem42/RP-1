@@ -290,7 +290,8 @@ namespace RP0
                     return;
                 }
                 var trace = new List<ReentryTraceSample>();
-                ReentryResult r = solver.Simulate(att, sp.SimEntryAltitude, v0, fpa, liftDown: false, trace: trace);
+                var partsTrace = new List<ReentryPartSample>();
+                ReentryResult r = solver.Simulate(att, sp.SimEntryAltitude, v0, fpa, liftDown: false, trace: trace, partsTrace: partsTrace);
 
                 string dir = $"{KSPUtil.ApplicationRootPath}saves/{HighLogic.SaveFolder}/RP-1_ReentryLogs";
                 System.IO.Directory.CreateDirectory(dir);
@@ -314,9 +315,25 @@ namespace RP0
                             s.BackgroundTempExposed.ToString("G9", inv), s.TrimPitch.ToString("G9", inv) }));
                     }
                 }
+                using (var w = new System.IO.StreamWriter(path.Replace(".csv", "") + ".parts.csv", false))
+                {
+                    w.WriteLine(ReentryPartSample.Header);
+                    foreach (ReentryPartSample s in partsTrace)
+                    {
+                        w.WriteLine(string.Join(",", new[] {
+                            s.Time.ToString("G9", inv), s.Time.ToString("G9", inv), s.Altitude.ToString("G9", inv), s.Part,
+                            s.SkinTemperature.ToString("G9", inv), s.SkinMaxTemp.ToString("G9", inv), s.Temperature.ToString("G9", inv), s.MaxTemp.ToString("G9", inv),
+                            s.SkinUnexposedTemperature.ToString("G9", inv),
+                            s.ExposedArea.ToString("G9", inv), s.RadiativeArea.ToString("G9", inv), s.SkinExposedAreaFrac.ToString("G9", inv),
+                            s.TempMult.ToString("G9", inv), s.CoeffMult.ToString("G9", inv), s.AreaMult.ToString("G9", inv),
+                            s.ConvectionFlux.ToString("G9", inv), s.RadiationFlux.ToString("G9", inv), s.SkinToInternalFlux.ToString("G9", inv),
+                            s.SkinThermalMass.ToString("G9", inv), s.ThermalMass.ToString("G9", inv),
+                            s.HeatConvectiveConstant.ToString("G9", inv), s.EmissiveConstant.ToString("G9", inv) }));
+                    }
+                }
                 _summary = $"Predicted (Pe {sp.SimOrbitPe / 1000:N0} km, entry {v0:N0} m/s at {fpa:N2}°, AoA {aoa:N0}°): {Describe(r.Outcome)} - " +
                            $"peak skin {r.PeakSkin:N0} K ({r.PeakSkinFrac * 100:N0}%) on {r.LimitingPart}, {r.PeakG:N1} g, {r.Duration:N0} s.\n" +
-                           $"Wrote {trace.Count} rows to {System.IO.Path.GetFileName(path)}";
+                           $"Wrote {trace.Count} rows to {System.IO.Path.GetFileName(path)} (+ .parts.csv)" + (factory.TrimSummary.Length > 0 ? $"\n{factory.TrimSummary}" : "");
             }
             catch (Exception ex)
             {

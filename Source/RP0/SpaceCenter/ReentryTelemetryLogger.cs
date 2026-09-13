@@ -118,6 +118,7 @@ namespace RP0
             {
                 _writer.WriteLine(sb.ToString());
                 _wroteAnything = true;
+                WriteParts(v, ut, haveFI);
             }
             catch (Exception ex)
             {
@@ -129,6 +130,11 @@ namespace RP0
 
         public void OnDestroy()
         {
+            if (_partsWriter != null)
+            {
+                try { _partsWriter.Dispose(); } catch (Exception) { }
+                _partsWriter = null;
+            }
             if (_writer == null) return;
             try
             {
@@ -142,6 +148,65 @@ namespace RP0
                 RP0Debug.LogError($"Failed closing reentry telemetry: {ex.Message}");
             }
             _writer = null;
+        }
+
+        // Per-part companion log: the same thermal inputs the editor analysis has to reconstruct (occlusion
+        // multipliers, exposed/radiative areas, skin fraction) for the hottest few parts plus every engine,
+        // so a per-part disagreement can be traced to a specific input rather than guessed at.
+        private const int PartsHottest = 4;
+        private StreamWriter _partsWriter;
+        private readonly List<Part> _partsPick = new List<Part>();
+
+        private void WriteParts(Vessel v, double ut, bool haveFI)
+        {
+            if (_partsWriter == null)
+            {
+                try
+                {
+                    _partsWriter = new StreamWriter(_path.Replace(".csv", "") + ".parts.csv", false) { AutoFlush = true };
+                    _partsWriter.WriteLine(Reentry.ReentryPartSample.Header);
+                }
+                catch (Exception ex)
+                {
+                    RP0Debug.LogError($"Could not open reentry parts log: {ex.Message}");
+                    _partsWriter = null;
+                    return;
+                }
+            }
+
+            _partsPick.Clear();
+            var sorted = new List<Part>(v.parts);
+            sorted.Sort((a, b) => Frac(b).CompareTo(Frac(a)));
+            for (int i = 0; i < sorted.Count && _partsPick.Count < PartsHottest; ++i) _partsPick.Add(sorted[i]);
+            foreach (Part p in v.parts)
+                if (!_partsPick.Contains(p) && p.FindModuleImplementing<ModuleEngines>() != null) _partsPick.Add(p);
+
+            var inv = CultureInfo.InvariantCulture;
+            foreach (Part p in _partsPick)
+            {
+                PartThermalData ptd = p.ptd;
+                var sb = new StringBuilder(320);
+                sb.Append(ut.ToString("R", inv)).Append(',');
+                Append(sb, v.missionTime);
+                Append(sb, v.altitude);
+                sb.Append(p.partInfo != null ? p.partInfo.name : p.name).Append(',');
+                Append(sb, p.skinTemperature); Append(sb, p.skinMaxTemp); Append(sb, p.temperature); Append(sb, p.maxTemp);
+                Append(sb, p.skinUnexposedTemperature);
+                Append(sb, p.exposedArea); Append(sb, p.radiativeArea); Append(sb, p.skinExposedAreaFrac);
+                Append(sb, ptd != null ? ptd.convectionTempMultiplier : double.NaN);
+                Append(sb, ptd != null ? ptd.convectionCoeffMultiplier : double.NaN);
+                Append(sb, ptd != null ? ptd.convectionAreaMultiplier : double.NaN);
+                Append(sb, p.thermalConvectionFlux); Append(sb, p.thermalRadiationFlux); Append(sb, p.skinToInternalFlux);
+                Append(sb, p.skinThermalMass); Append(sb, p.thermalMass);
+                Append(sb, p.heatConvectiveConstant); Append(sb, p.emissiveConstant, last: true);
+                _partsWriter.WriteLine(sb.ToString());
+            }
+        }
+
+        private static double Frac(Part p)
+        {
+            double f = p.skinMaxTemp > 0d ? p.skinTemperature / p.skinMaxTemp : 0d;
+            return p.maxTemp > 0d ? Math.Max(f, p.temperature / p.maxTemp) : f;
         }
 
         /// <summary>The part closest to its own skin limit - the one that decides whether the entry is survivable.</summary>

@@ -40,7 +40,8 @@ namespace RP0.Reentry
         public string ThermalModelDescription => _realHeat != null ? "RealHeat" : "stock";
 
         public ReentryResult Simulate(ReentryAttitude att, double entryAlt, double entrySpeed, double entryFpaDeg,
-                                      bool liftDown, double startTemp = 293.15, List<ReentryTraceSample> trace = null)
+                                      bool liftDown, double startTemp = 293.15, List<ReentryTraceSample> trace = null,
+                                      List<ReentryPartSample> partsTrace = null)
         {
             var res = new ReentryResult { AoADeg = att.AoADeg, LiftDown = liftDown, Outcome = ReentryOutcome.TimedOut };
             foreach (ReentryNode n in att.Nodes) n.Reset(startTemp);
@@ -96,6 +97,7 @@ namespace RP0.Reentry
                 {
                     nextTrace = t + TraceInterval;
                     trace.Add(Sample(att, t, alt, vAir, mach, density, q, gees, ambientT, dragKN, liftSign * liftKN));
+                    if (partsTrace != null) SampleParts(att, t, alt, partsTrace);
                 }
 
                 double dv = (-aDrag - g * Math.Sin(gamma)) * dt;
@@ -354,6 +356,9 @@ namespace RP0.Reentry
                 n.LastSkinToInternalFlux = lastSkinInt;
                 n.LastExposedArea = expArea;
                 n.LastRadiativeArea = radArea;
+                n.LastTempMult = tempMult;
+                n.LastCoeffMult = coeffMult;
+                n.LastAreaMult = areaMult;
 
                 if (n.SkinTemperature > n.PeakSkin) n.PeakSkin = n.SkinTemperature;
                 if (splitSkin && n.SkinUnexposedTemperature > n.PeakSkin) n.PeakSkin = n.SkinUnexposedTemperature;
@@ -400,6 +405,34 @@ namespace RP0.Reentry
                 s.ConvectionFlux = hot.LastConvectionFlux; s.RadiationFlux = hot.LastRadiationFlux; s.SkinToInternalFlux = hot.LastSkinToInternalFlux;
             }
             return s;
+        }
+
+        /// <summary>Part rows for the hottest few parts plus every engine, matching the flight-side parts log.</summary>
+        public const int PartsTraceHottest = 4;
+
+        private static void SampleParts(ReentryAttitude att, double t, double alt, List<ReentryPartSample> partsTrace)
+        {
+            var picked = new List<ReentryNode>();
+            var byFrac = new List<ReentryNode>(att.Nodes);
+            byFrac.Sort((a, b) => Math.Max(b.SkinTemperature / b.SkinMaxTemp, b.Temperature / b.MaxTemp)
+                                   .CompareTo(Math.Max(a.SkinTemperature / a.SkinMaxTemp, a.Temperature / a.MaxTemp)));
+            for (int i = 0; i < byFrac.Count && picked.Count < PartsTraceHottest; ++i) picked.Add(byFrac[i]);
+            foreach (ReentryNode n in att.Nodes) if (n.IsEngine && !picked.Contains(n)) picked.Add(n);
+            foreach (ReentryNode n in picked)
+            {
+                partsTrace.Add(new ReentryPartSample
+                {
+                    Time = t, Altitude = alt,
+                    Part = n.Part != null && n.Part.partInfo != null ? n.Part.partInfo.name : n.Name,
+                    SkinTemperature = n.SkinTemperature, SkinMaxTemp = n.SkinMaxTemp, Temperature = n.Temperature, MaxTemp = n.MaxTemp,
+                    SkinUnexposedTemperature = n.SkinUnexposedTemperature,
+                    ExposedArea = n.LastExposedArea, RadiativeArea = n.LastRadiativeArea, SkinExposedAreaFrac = n.SkinExposedAreaFrac,
+                    TempMult = n.LastTempMult, CoeffMult = n.LastCoeffMult, AreaMult = n.LastAreaMult,
+                    ConvectionFlux = n.LastConvectionFlux, RadiationFlux = n.LastRadiationFlux, SkinToInternalFlux = n.LastSkinToInternalFlux,
+                    SkinThermalMass = n.SkinThermalMass, ThermalMass = n.ThermalMass,
+                    HeatConvectiveConstant = n.HeatConvectiveConstant, EmissiveConstant = n.EmissiveConstant
+                });
+            }
         }
 
         // SetSkinProperties: when the exposed fraction changes, move heat between the two skin nodes so
