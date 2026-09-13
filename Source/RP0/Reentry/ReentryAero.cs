@@ -134,8 +134,13 @@ namespace RP0.Reentry
         /// <summary>As SaturationCeiling, but only where the wheels and RCS cannot make up the difference either.</summary>
         public double BeyondControlCeiling(double minMach = 12.0) => Ceiling(_beyondControl, minMach);
 
-        /// <summary>Dynamic pressure (kPa) below which pitch-trim shortfalls are ignored: nothing to trim against.</summary>
-        public const double MeaningfulQ = 0.02;
+        /// <summary>
+        /// Dynamic pressure (kPa) below which pitch-trim shortfalls are ignored. There is little to trim against
+        /// up there, and the editor sim overstates the nose-down moment in rarefied air (at 96 km it calls a
+        /// 39 deg hold saturated where flight needs half elevator). 0.1 kPa is about 88 km at orbital speed,
+        /// where the flown and predicted trim start to agree.
+        /// </summary>
+        public const double MeaningfulQ = 0.1;
 
         private double Ceiling(bool[,] flags, double minMach)
         {
@@ -683,7 +688,7 @@ namespace RP0.Reentry
             {
                 if (TotalSamples == 0) return "";
                 if (!double.IsNaN(BeyondControlCeiling))
-                    return $"WARNING: the elevator, wheels and RCS together cannot hold this AoA below about {BeyondControlCeiling / 1000:N0} km. " +
+                    return $"WARNING: full elevator alone cannot hold this AoA below about {SaturationCeiling / 1000:N0} km, and even with {ControlTorqueKNm:N0} kN m of wheel/RCS torque not below {BeyondControlCeiling / 1000:N0} km. " +
                            "The vehicle will settle nearer its trim angle there, so this prediction is uncertain - fly a lower AoA or add pitch authority";
                 if (AttitudeNotHeld)
                     return $"CAUTION: full elevator alone cannot hold this AoA below about {SaturationCeiling / 1000:N0} km; it relies on " +
