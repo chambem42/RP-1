@@ -296,7 +296,14 @@ namespace RP0
                 var k = ReentryConstants.FromGame(body);
                 var solver = new ReentrySolver(body, k);
                 var factory = new DefaultAeroFactory();
-                if (FarEditorAero.Ready) FarEditorAero.LogAlphaSweep(body, 25.0, 80000.0);
+                if (FarEditorAero.Ready)
+                {
+                    FarEditorAero.LogAlphaSweep(body, 25.0, 80000.0);
+                    // per-wing numbers at the flown condition, untrimmed and at full pitch-up, for the flight log's [ReentryWings]
+                    double alpha = _attitude == 0 ? 180.0 - aoa : aoa;
+                    FarEditorAero.LogWingBreakdown(body, 25.0, 80000.0, alpha, 0.0);
+                    FarEditorAero.LogWingBreakdown(body, 25.0, 80000.0, alpha, 1.0);
+                }
                 ReentryVesselBuilder.DebugOcclusionMach = 25.0;   // log the engines' occluder chain for this one build
                 ReentryAttitude att;
                 try { att = ReentryVesselBuilder.Build(parts, body, k, aoa, _attitude == 0, factory); }

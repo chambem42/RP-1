@@ -360,6 +360,55 @@ namespace RP0.Reentry
             RP0Debug.Log(sb.ToString(), true);
         }
 
+        /// <summary>
+        /// Diagnostic: evaluate the editor sim once at (alpha, Mach, altitude, trimmed with pitch input) and
+        /// log each wing part's area, MAC, Cl, Cd and stall fraction, in the same shape as the flight logger's
+        /// [ReentryWings] lines, so the two wing models can be compared part by part.
+        /// </summary>
+        public static void LogWingBreakdown(CelestialBody body, double mach, double altitude, double alpha, double pitch)
+        {
+            if (!Ready) return;
+            object sim = InstantSim();
+            object input = Activator.CreateInstance(_inputType);
+            _inMach.SetValue(input, mach);
+            _inAlpha.SetValue(input, alpha);
+            _inPitch?.SetValue(input, pitch);
+            bool flight = SupportsFlightConditions && body != null;
+            double lengthScale = flight ? Math.Max(1.0, Convert.ToDouble(_bodyLengthField.GetValue(sim))) : 1.0;
+            var sb = new System.Text.StringBuilder();
+            try
+            {
+                if (flight) _aeroConditionProp.SetValue(sim, _forFlightPoint.Invoke(null, new object[] { body, altitude, mach, lengthScale }), null);
+                object[] args = { input, null, true, true };
+                _getClCdCm.Invoke(sim, args);
+                sb.Append($"[ReentryWings] editor alt {altitude / 1000:N0} km, Mach {mach:N0}, alpha {alpha:N1}, pitch {pitch:N2}: " +
+                          $"Cl {Convert.ToDouble(_outCl.GetValue(args[1])):N3} Cd {Convert.ToDouble(_outCd.GetValue(args[1])):N3}");
+                if (_wingListField?.GetValue(sim) is System.Collections.IEnumerable wings)
+                    foreach (object w in wings)
+                    {
+                        if (!(w is PartModule m) || m.part == null) continue;
+                        sb.Append($"\n  {m.part.partInfo.name}: S {Num(m, "S"):N2} MAC {Num(m, "GetMAC"):N2} Cl {Num(m, "GetCl"):N3} Cd {Num(m, "GetCd"):N3} stall {Num(m, "GetStall"):N2}");
+                    }
+            }
+            catch (Exception ex) { sb.Append($"\n  failed: {ex.Message}"); }
+            finally
+            {
+                _inPitch?.SetValue(input, 0.0);
+                if (flight) _aeroConditionProp.SetValue(sim, null, null);
+            }
+            RP0Debug.Log(sb.ToString(), true);
+        }
+
+        private static double Num(object o, string member)
+        {
+            const BindingFlags any = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+            Type t = o.GetType();
+            FieldInfo f = t.GetField(member, any);
+            if (f != null) return Convert.ToDouble(f.GetValue(o));
+            MethodInfo mi = t.GetMethod(member, any, null, Type.EmptyTypes, null);
+            return mi != null ? Convert.ToDouble(mi.Invoke(o, null)) : double.NaN;
+        }
+
         public void Forces(double dynPresKPa, double mach, double altitude, double pseudoReDragMult, out double dragKN, out double liftKN)
         {
             Index(_mach, mach, out int mi, out double mf);

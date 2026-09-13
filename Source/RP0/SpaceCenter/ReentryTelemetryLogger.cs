@@ -127,6 +127,11 @@ namespace RP0
                 _writer.WriteLine(sb.ToString());
                 _wroteAnything = true;
                 WriteParts(v, ut, haveFI);
+                if (v.missionTime >= _nextWingLog)
+                {
+                    _nextWingLog = v.missionTime + 30.0;
+                    LogWings(v);
+                }
             }
             catch (Exception ex)
             {
@@ -272,6 +277,46 @@ namespace RP0
             if (m == null) return double.NaN;
             try { return Convert.ToDouble(m.Invoke(null, new object[] { v })); }
             catch { return double.NaN; }
+        }
+
+        // Per-wing breakdown (FARWingAerodynamicModel: area, MAC, Cl, Cd, stall fraction, force) every 30 s of
+        // mission time, to hold against FarEditorAero.LogWingBreakdown for the same craft and condition.
+        private double _nextWingLog;
+
+        private void LogWings(Vessel v)
+        {
+            if (_farWingType == null) return;
+            try
+            {
+                Vector3 velNorm = v.srf_velocity.normalized;
+                Vector3 liftDir = Vector3.ProjectOnPlane(-v.ReferenceTransform.forward, velNorm).normalized;
+                var sb = new StringBuilder(512);
+                sb.Append($"[ReentryWings] flight alt {v.altitude / 1000:N1} km, Mach {v.mach:N1}, q {v.dynamicPressurekPa:N3} kPa, AoA {FarValue(_farAoA, v):N1}:");
+                foreach (Part p in v.parts)
+                    foreach (PartModule m in p.Modules)
+                    {
+                        if (!_farWingType.IsInstanceOfType(m)) continue;
+                        Vector3 f = (Vector3)_farWingForce.GetValue(m);
+                        sb.Append($"\n  {p.partInfo.name}: S {WingNum(m, "S"):N2} MAC {WingNum(m, "GetMAC"):N2} Cl {WingNum(m, "GetCl"):N3} Cd {WingNum(m, "GetCd"):N3} stall {WingNum(m, "GetStall"):N2}" +
+                                  $" lift {Vector3.Dot(f, liftDir):N2} drag {-Vector3.Dot(f, velNorm):N2} kN");
+                    }
+                RP0Debug.Log(sb.ToString(), true);
+            }
+            catch (Exception ex)
+            {
+                RP0Debug.LogWarning($"wing breakdown failed: {ex.Message}");
+                _nextWingLog = double.MaxValue;
+            }
+        }
+
+        private static double WingNum(PartModule m, string member)
+        {
+            const System.Reflection.BindingFlags any = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+            Type t = m.GetType();
+            var f = t.GetField(member, any);
+            if (f != null) return Convert.ToDouble(f.GetValue(m));
+            var mi = t.GetMethod(member, any, null, Type.EmptyTypes, null);
+            return mi != null ? Convert.ToDouble(mi.Invoke(m, null)) : double.NaN;
         }
 
         // Sum FAR's per-part forces (kN) and resolve them the way the editor sim does: drag along the
