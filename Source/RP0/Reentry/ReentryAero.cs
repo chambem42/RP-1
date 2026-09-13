@@ -103,6 +103,7 @@ namespace RP0.Reentry
         private readonly double[,] _cl, _cd, _trimPitch;   // [alt, mach]; a single altitude row when flight conditions are unsupported
         private readonly double[,] _wingCl, _wingCd;       // the wing model's share of _cl/_cd (fork output), else NaN
         private readonly double[,] _alpha;                 // FAR alpha actually held at each point (trim-limited where the elevator saturates)
+        private readonly bool[,] _saturated;               // full deflection could not hold the requested alpha here
         private readonly double _refArea;
         private readonly double _liftSign;
         private readonly bool _flightConditions, _shieldFirst;
@@ -123,6 +124,19 @@ namespace RP0.Reentry
         public double LastWingLiftKN { get; private set; } = double.NaN;
         public double LastWingDragKN { get; private set; } = double.NaN;
         public double LastAoA { get; private set; } = double.NaN;
+
+        /// <summary>
+        /// Highest altitude (m) at which full elevator cannot hold the requested angle at any Mach of at least
+        /// minMach - i.e. from here down the vehicle will not fly the analysed attitude. NaN when it always can.
+        /// </summary>
+        public double SaturationCeiling(double minMach = 12.0)
+        {
+            double top = double.NaN;
+            for (int ai = 0; ai < _alt.Length; ++ai)
+                for (int m = 0; m < _mach.Length; ++m)
+                    if (_saturated[ai, m] && _mach[m] >= minMach && (double.IsNaN(top) || _alt[ai] > top)) top = _alt[ai];
+            return top;
+        }
 
         // Trim: find the pitch control input that zeroes Cm at this alpha/Mach/altitude and take Cl/Cd
         // there. Holding an angle of attack costs control-surface deflection, and on a lifting body
@@ -361,6 +375,7 @@ namespace RP0.Reentry
             _wingCl = new double[_alt.Length, _mach.Length];
             _wingCd = new double[_alt.Length, _mach.Length];
             _alpha = new double[_alt.Length, _mach.Length];
+            _saturated = new bool[_alt.Length, _mach.Length];
             _trimPitch = new double[_alt.Length, _mach.Length];
 
             // FAR's alpha is measured from +forward; a shield-first entry is alpha = 180 - AoA.
@@ -394,6 +409,7 @@ namespace RP0.Reentry
                         if (!trimmed)
                         {
                             _untrimmable++;
+                            _saturated[ai, m] = true;
                             // Cm is per q * S * MAC; the wheels/RCS torque as a coefficient at this altitude and Mach.
                             double q = _flightConditions ? DynamicPressureKPa(body, _alt[ai], _mach[m]) : 0.0;
                             double cmBudget = q > 0.0 && refMac > 0.0 ? controlTorqueKNm / (q * refAreaEarly * refMac) : double.MaxValue;
@@ -644,10 +660,16 @@ namespace RP0.Reentry
         // Trim bookkeeping across every attitude built through this factory.
         public double MaxTrimPitch;
         public int Untrimmable, TotalSamples;
+        public double SaturationCeiling = double.NaN;
 
-        /// <summary>One line on what holding the analysed attitudes costs in pitch control.</summary>
+        /// <summary>True when the vehicle cannot actually fly the analysed attitude through the heating band.</summary>
+        public bool AttitudeNotHeld => !double.IsNaN(SaturationCeiling);
+
+        /// <summary>One line on what holding the analysed attitudes costs in pitch control, and an honest caveat when it cannot.</summary>
         public string TrimSummary => TotalSamples == 0 ? ""
-            : Untrimmable > 0 ? $"full elevator cannot hold the AoA at {Untrimmable} of {TotalSamples} flight points; held at the angle it can (see the trace)"
+            : AttitudeNotHeld ? $"WARNING: full elevator cannot hold this AoA below about {SaturationCeiling / 1000:N0} km (hypersonic). " +
+                                "The vehicle will settle nearer its trim angle there, so this prediction is uncertain - fly a lower AoA or add pitch authority"
+            : Untrimmable > 0 ? $"full elevator cannot hold the AoA at {Untrimmable} of {TotalSamples} flight points (outside the hypersonic band)"
             : $"trim needs up to {MaxTrimPitch:P0} elevator";
 
         public IReentryAero Create(CelestialBody body, List<ReentryNode> nodes, Vector3 velDir, Vector3 liftAxis, Vector3 forward, Vector3 up,
@@ -661,6 +683,8 @@ namespace RP0.Reentry
                     if (far.MaxTrimPitch > MaxTrimPitch) MaxTrimPitch = far.MaxTrimPitch;
                     Untrimmable += far.UntrimmableSamples;
                     TotalSamples += far.TotalSamples;
+                    double ceiling = far.SaturationCeiling();
+                    if (!double.IsNaN(ceiling) && (double.IsNaN(SaturationCeiling) || ceiling > SaturationCeiling)) SaturationCeiling = ceiling;
                     LastSource = far.Description;
                     return far;
                 }
