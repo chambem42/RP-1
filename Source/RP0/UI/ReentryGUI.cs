@@ -109,6 +109,8 @@ namespace RP0
                 PredictSimSetup(parts, body);
             GUILayout.Label("at AoA", GUILayout.Width(50));
             _sPredictAoA = GUILayout.TextField(_sPredictAoA, GUILayout.Width(40));
+            if (ReentryHeatHighlight.Active && GUILayout.Button(new GUIContent("Clear tint", "Remove the temperature tint from the parts."), GUILayout.Width(80)))
+                ReentryHeatHighlight.Clear();
             GUILayout.EndHorizontal();
 
             if (!string.IsNullOrEmpty(_summary))
@@ -354,7 +356,7 @@ namespace RP0
                             s.AoA.ToString("G9", inv), s.Cl.ToString("G9", inv), s.Cd.ToString("G9", inv), s.RefArea.ToString("G9", inv),
                             s.BackgroundTempExposed.ToString("G9", inv), s.TrimPitch.ToString("G9", inv),
                             s.Sideslip.ToString("G9", inv), s.LiftKN.ToString("G9", inv), s.DragKN.ToString("G9", inv), s.SideKN.ToString("G9", inv),
-                            s.WingLiftKN.ToString("G9", inv), s.WingDragKN.ToString("G9", inv), "0" }));
+                            s.WingLiftKN.ToString("G9", inv), s.WingDragKN.ToString("G9", inv), "0", "0" }));
                     }
                 }
                 using (var w = new System.IO.StreamWriter(path.Replace(".csv", "") + ".parts.csv", false))
@@ -376,7 +378,9 @@ namespace RP0
                 }
                 _summary = $"Predicted (Pe {sp.SimOrbitPe / 1000:N0} km, entry {v0:N0} m/s at {fpa:N2}°, AoA {aoa:N0}° {(_attitude == 0 ? "shield first" : "nose first")}): {Describe(r.Outcome)} - " +
                            $"peak skin {r.PeakSkin:N0} K ({r.PeakSkinFrac * 100:N0}%) on {r.LimitingPart}, {r.PeakG:N1} g, {r.Duration:N0} s.\n" +
-                           $"Wrote {trace.Count} rows to {System.IO.Path.GetFileName(path)} (+ .parts.csv)" + (factory.TrimSummary.Length > 0 ? $"\n{factory.TrimSummary}" : "");
+                           $"Wrote {trace.Count} rows to {System.IO.Path.GetFileName(path)} (+ .parts.csv)" + (factory.TrimSummary.Length > 0 ? $"\n{factory.TrimSummary}" : "") +
+                           "\nParts are tinted by their peak: blue cold, yellow at 70%, red at the limit; parts that went over it are drawn translucent.";
+                ReentryHeatHighlight.Apply(att);
             }
             catch (Exception ex)
             {

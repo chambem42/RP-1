@@ -277,6 +277,7 @@
     <Compile Include="Reentry\RealHeatBridge.cs" />
     <Compile Include="Reentry\RealFuelsBridge.cs" />
     <Compile Include="UI\ReentryGUI.cs" />
+    <Compile Include="UI\ReentryHeatHighlight.cs" />
     <Compile Include="Utilities\ECMHelper.cs" />
     <Compile Include="Utilities\LambertSolver.cs" />
     <Compile Include="SpaceCenter\Projects\ISpaceCenterProject.cs" />

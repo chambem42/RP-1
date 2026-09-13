@@ -29,11 +29,11 @@ namespace RP0
             "part,skinTemperature,skinMaxTemp,temperature,maxTemp," +
             "exposedArea,radiativeArea,convectionFlux,radiationFlux,skinToInternalFlux," +
             "aoa,cl,cd,refArea,brtExposed,trimPitch," +
-            "sideslip,liftKN,dragKN,sideKN,wingLiftKN,wingDragKN,bank";
+            "sideslip,liftKN,dragKN,sideKN,wingLiftKN,wingDragKN,bank,pitchMomentKNm";
 
         // FAR's flight readouts, by reflection (FARAPI is public static). Optional: blank columns without FAR.
         private static bool _farResolved;
-        private static System.Reflection.MethodInfo _farAoA, _farCl, _farCd, _farRefArea, _farSideslip;
+        private static System.Reflection.MethodInfo _farAoA, _farCl, _farCd, _farRefArea, _farSideslip, _farTorque;
         // Per-part aero forces: the voxel body's (FARAeroPartModule.worldSpaceAeroForce) and the wing model's
         // (FARWingAerodynamicModel.worldSpaceForce), so lift can be split the way the editor sim reports it.
         private static Type _farAeroModuleType, _farWingType;
@@ -121,7 +121,8 @@ namespace RP0
             Append(sb, FarValue(_farSideslip, v));
             AeroForceBreakdown(v, out double lift, out double drag, out double side, out double wingLift, out double wingDrag);
             Append(sb, lift); Append(sb, drag); Append(sb, side); Append(sb, wingLift); Append(sb, wingDrag);
-            Append(sb, BankAngle(v), last: true);
+            Append(sb, BankAngle(v));
+            Append(sb, PitchMoment(v), last: true);
 
             try
             {
@@ -281,6 +282,25 @@ namespace RP0
             catch { return double.NaN; }
         }
 
+        /// <summary>
+        /// FAR's total aerodynamic moment about the CoM resolved on the pitch axis (kN m), positive nose-up
+        /// (the axis that carries the nose toward the roof). In steady flight this is what the wheels and RCS
+        /// are holding against; with those off it is zero and the elevator input is the pure aero trim.
+        /// </summary>
+        private static double PitchMoment(Vessel v)
+        {
+            if (!_farResolved) ResolveFar();
+            if (_farTorque == null || v.ReferenceTransform == null) return double.NaN;
+            try
+            {
+                Vector3 torque = (Vector3)_farTorque.Invoke(null, new object[] { v });
+                Vector3 nose = v.ReferenceTransform.up, roof = -v.ReferenceTransform.forward;
+                Vector3 pitchUpAxis = Vector3.Cross(nose, roof).normalized;   // rotation taking nose toward roof
+                return Vector3.Dot(torque, pitchUpAxis);
+            }
+            catch { return double.NaN; }
+        }
+
         /// <summary>Bank: the roof's angle from local up, measured around the airspeed (0 = roof to the sky, 180 = inverted).</summary>
         public static double BankAngle(Vessel v)
         {
@@ -385,6 +405,7 @@ namespace RP0
                     _farCd = api.GetMethod("VesselDragCoeff", flags, null, sig, null);
                     _farRefArea = api.GetMethod("VesselRefArea", flags, null, sig, null);
                     _farSideslip = api.GetMethod("VesselSideslip", flags, null, sig, null);
+                    _farTorque = api.GetMethod("VesselAerodynamicTorque", flags, null, sig, null);
                     var pub = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance;
                     _farAeroModuleType = la.assembly.GetType("FerramAerospaceResearch.FARAeroComponents.FARAeroPartModule");
                     _farBodyForce = _farAeroModuleType?.GetField("worldSpaceAeroForce", pub);
