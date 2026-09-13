@@ -20,6 +20,7 @@ namespace RP0.Reentry
         public double LastTrimPitch => double.NaN;
         public double LastWingLiftKN => double.NaN;
         public double LastWingDragKN => double.NaN;
+        public double LastAoA => double.NaN;
 
         public DragCubeAero(List<ReentryNode> nodes, Vector3 velDir, Vector3 liftAxis, ReentryConstants k)
         {
@@ -101,9 +102,10 @@ namespace RP0.Reentry
         private readonly double[] _mach, _alt;
         private readonly double[,] _cl, _cd, _trimPitch;   // [alt, mach]; a single altitude row when flight conditions are unsupported
         private readonly double[,] _wingCl, _wingCd;       // the wing model's share of _cl/_cd (fork output), else NaN
+        private readonly double[,] _alpha;                 // FAR alpha actually held at each point (trim-limited where the elevator saturates)
         private readonly double _refArea;
         private readonly double _liftSign;
-        private readonly bool _flightConditions;
+        private readonly bool _flightConditions, _shieldFirst;
         private int _untrimmable;
         private double _maxTrimPitch;
         private double _lastWingCl, _lastWingCd;           // from the most recent EvalCm
@@ -118,6 +120,7 @@ namespace RP0.Reentry
         public double LastTrimPitch { get; private set; }
         public double LastWingLiftKN { get; private set; } = double.NaN;
         public double LastWingDragKN { get; private set; } = double.NaN;
+        public double LastAoA { get; private set; } = double.NaN;
 
         // Trim: find the pitch control input that zeroes Cm at this alpha/Mach/altitude and take Cl/Cd
         // there. Holding an angle of attack costs control-surface deflection, and on a lifting body
@@ -146,6 +149,44 @@ namespace RP0.Reentry
             // Untrimmable when the best we could do sits at full deflection with the moment still well off zero.
             trimmed = !(Math.Abs(p1) >= 1.0 && Math.Abs(c1) > 0.05 * Math.Max(cmUntrimmed, 1e-3));
             _inPitch.SetValue(input, 0.0);
+        }
+
+        // When full deflection cannot hold the requested angle, the vehicle does not hold it: it settles
+        // where the moment at the stop is zero. Flight shows exactly that (AoA sagging from 42 to 39 deg
+        // with the elevator pinned), so find that angle by secant on alpha at the stop and take its Cl/Cd.
+        // Returns the achieved alpha, or the requested one if no root is found within reach.
+        private double SolveAlphaAtStop(object sim, object input, double alphaReq, double stop, out double cl, out double cd)
+        {
+            _inPitch.SetValue(input, stop);
+            double a0 = alphaReq, c0 = EvalCmAtAlpha(sim, input, a0, out cl, out cd);
+            double a1 = alphaReq - Math.Sign(alphaReq == 0.0 ? 1.0 : alphaReq) * 4.0;
+            double c1 = EvalCmAtAlpha(sim, input, a1, out double cl1, out double cd1);
+            double best = alphaReq;
+            for (int i = 0; i < 6; ++i)
+            {
+                if (Math.Abs(c1 - c0) < 1e-9) break;
+                double a2 = a1 - c1 * (a1 - a0) / (c1 - c0);
+                if (Math.Abs(a2 - alphaReq) > 25.0) break;           // the root is not near: give up
+                double c2 = EvalCmAtAlpha(sim, input, a2, out cl1, out cd1);
+                a0 = a1; c0 = c1; a1 = a2; c1 = c2;
+                if (Math.Abs(c1) < 1e-4) { best = a1; cl = cl1; cd = cd1; break; }
+                best = a1; cl = cl1; cd = cd1;
+            }
+            _inAlpha.SetValue(input, alphaReq);
+            _inPitch.SetValue(input, 0.0);
+            return best;
+        }
+
+        private double EvalCmAtAlpha(object sim, object input, double alpha, out double cl, out double cd)
+        {
+            _inAlpha.SetValue(input, alpha);
+            object[] args = { input, null, false, false };
+            _getClCdCm.Invoke(sim, args);
+            cl = Convert.ToDouble(_outCl.GetValue(args[1]));
+            cd = Convert.ToDouble(_outCd.GetValue(args[1]));
+            _lastWingCl = _outWingCl != null ? Convert.ToDouble(_outWingCl.GetValue(args[1])) : double.NaN;
+            _lastWingCd = _outWingCd != null ? Convert.ToDouble(_outWingCd.GetValue(args[1])) : double.NaN;
+            return _outCm != null ? Convert.ToDouble(_outCm.GetValue(args[1])) : 0.0;
         }
 
         private double EvalCm(object sim, object input, double pitch, bool clear, out double cl, out double cd)
@@ -263,6 +304,7 @@ namespace RP0.Reentry
             object sim = InstantSim();
             if (sim == null) throw new InvalidOperationException("FAR editor sim not running");
             _flightConditions = SupportsFlightConditions && body != null;
+            _shieldFirst = shieldFirst;
 
             _mach = ReentryVesselBuilder.MachSamples;
             if (_flightConditions)
@@ -280,6 +322,7 @@ namespace RP0.Reentry
             _cd = new double[_alt.Length, _mach.Length];
             _wingCl = new double[_alt.Length, _mach.Length];
             _wingCd = new double[_alt.Length, _mach.Length];
+            _alpha = new double[_alt.Length, _mach.Length];
             _trimPitch = new double[_alt.Length, _mach.Length];
 
             // FAR's alpha is measured from +forward; a shield-first entry is alpha = 180 - AoA.
@@ -308,10 +351,15 @@ namespace RP0.Reentry
                         }
                         _inMach.SetValue(input, _mach[m]);
                         SampleTrimmed(sim, input, first, out _cl[ai, m], out _cd[ai, m], out _trimPitch[ai, m], out bool trimmed);
+                        _alpha[ai, m] = alpha;
+                        if (!trimmed)
+                        {
+                            _untrimmable++;
+                            _alpha[ai, m] = SolveAlphaAtStop(sim, input, alpha, _trimPitch[ai, m], out _cl[ai, m], out _cd[ai, m]);
+                        }
                         _wingCl[ai, m] = _lastWingCl;
                         _wingCd[ai, m] = _lastWingCd;
                         first = false;
-                        if (!trimmed) _untrimmable++;
                         if (Math.Abs(_trimPitch[ai, m]) > _maxTrimPitch) _maxTrimPitch = Math.Abs(_trimPitch[ai, m]);
                     }
                 }
@@ -436,6 +484,8 @@ namespace RP0.Reentry
             double wingCl = Bilinear(_wingCl, ai, af, mi, mf);
             double wingCd = Bilinear(_wingCd, ai, af, mi, mf);
             LastTrimPitch = Bilinear(_trimPitch, ai, af, mi, mf);
+            double alphaHeld = Bilinear(_alpha, ai, af, mi, mf);
+            LastAoA = _shieldFirst ? 180.0 - alphaHeld : alphaHeld;
             // In flight FAR scales each part's along-velocity body force by the stock pseudo-Reynolds drag
             // curve (never below 1), a large boost in the rarefied band. The editor sim runs at density 2
             // and unit speed, where that curve reads 1, so it has to go back on here. Wing-model forces are
@@ -557,7 +607,7 @@ namespace RP0.Reentry
 
         /// <summary>One line on what holding the analysed attitudes costs in pitch control.</summary>
         public string TrimSummary => TotalSamples == 0 ? ""
-            : Untrimmable > 0 ? $"cannot trim at {Untrimmable} of {TotalSamples} flight points (full elevator insufficient)"
+            : Untrimmable > 0 ? $"full elevator cannot hold the AoA at {Untrimmable} of {TotalSamples} flight points; held at the angle it can (see the trace)"
             : $"trim needs up to {MaxTrimPitch:P0} elevator";
 
         public IReentryAero Create(CelestialBody body, List<ReentryNode> nodes, Vector3 velDir, Vector3 liftAxis, Vector3 forward, Vector3 up,

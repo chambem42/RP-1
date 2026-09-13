@@ -146,6 +146,9 @@ namespace RP0.Reentry
         /// <summary>The wing model's share of the last Forces() call (kN), NaN when the model has no wing/body split.</summary>
         double LastWingLiftKN { get; }
         double LastWingDragKN { get; }
+        /// <summary>Angle of attack actually held at the last Forces() call - less than requested where full
+        /// control deflection cannot hold it - or NaN when the model does not trim.</summary>
+        double LastAoA { get; }
         /// <summary>Drag and signed lift (kN) at the given dynamic pressure (kPa), Mach and pseudo-Reynolds drag multiplier.
         /// Positive lift is toward the vessel's "up" side; the caller flips it for a lift-down attitude.</summary>
         void Forces(double dynPresKPa, double mach, double altitude, double pseudoReDragMult, out double dragKN, out double liftKN);
