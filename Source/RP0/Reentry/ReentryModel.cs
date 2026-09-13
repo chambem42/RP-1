@@ -109,6 +109,10 @@ namespace RP0.Reentry
         public double LastConvectionFlux, LastRadiationFlux, LastSkinToInternalFlux, LastExposedArea, LastRadiativeArea;
         public double LastTempMult, LastCoeffMult, LastAreaMult;
         public bool IsEngine;
+        // RealFuels tank insulation: when MliLayers > 0 the skin-interior conductivity is recomputed per step
+        // from the MLI transfer rate (ModuleFuelTanks.CalculateInsulation) instead of the prefab value.
+        public int MliLayers;
+        public double PrefabSkinInternalConductionMult;
 
         public void Reset(double startTemp)
         {

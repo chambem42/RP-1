@@ -90,7 +90,7 @@ namespace RP0.Reentry
 
                 if (density > 0.0)
                 {
-                    StepThermal(att, dt, density, vAir, mach, q, ambientT, ref peakFluxRate, ref res, alt);
+                    StepThermal(att, dt, density, vAir, mach, q, pressure, ambientT, ref peakFluxRate, ref res, alt);
                 }
 
                 if (trace != null && t >= nextTrace && density > 0.0)
@@ -199,8 +199,8 @@ namespace RP0.Reentry
 
         // ---- per-part thermal step -----------------------------------------------------------------
 
-        private void StepThermal(ReentryAttitude att, double dt, double density, double spd, double mach, double q, double ambientT,
-                                 ref double peakFluxRate, ref ReentryResult res, double alt)
+        private void StepThermal(ReentryAttitude att, double dt, double density, double spd, double mach, double q, double pressure,
+                                 double ambientT, ref double peakFluxRate, ref ReentryResult res, double alt)
         {
             double machLerp = ConvectiveMachLerp(mach);
             double extT, convCoeff, dtl;
@@ -296,6 +296,9 @@ namespace RP0.Reentry
                 double sic = 0.0, skinSkinK = 0.0;
                 if (_k.ConductionEnabled)
                 {
+                    if (n.MliLayers > 0)
+                        conductivity = RealFuelsBridge.HeatConductivity(n.MliLayers, n.PrefabSkinInternalConductionMult, n.SkinTemperature, n.Temperature,
+                                                                        pressure, _k.SkinInternalConductionFactor, _k.ConductionFactor, _k.ThermalConvergenceFactor);
                     double half = _k.ConductionFactor * 10.0 * conductivity * 0.5;
                     sic = half * _k.SkinInternalConductionFactor * n.SkinInternalConductionMult;
                     if (splitSkin)
@@ -334,6 +337,13 @@ namespace RP0.Reentry
                         ablFlux = n.AblatorPyrolysisLoss * rate * n.AblatorDensity;                          // kW
                     }
 
+                    if (n.MliLayers > 0 && _k.ConductionEnabled && s > 0)
+                    {
+                        // The MLI rate is strongly temperature dependent; refresh it on every sub-step as RF does every tick.
+                        double c = RealFuelsBridge.HeatConductivity(n.MliLayers, n.PrefabSkinInternalConductionMult, n.SkinTemperature, n.Temperature,
+                                                                    pressure, _k.SkinInternalConductionFactor, _k.ConductionFactor, _k.ThermalConvergenceFactor);
+                        sic = _k.ConductionFactor * 10.0 * c * 0.5 * _k.SkinInternalConductionFactor * n.SkinInternalConductionMult;
+                    }
                     double skinInt = aExp * sic * (n.SkinTemperature - n.Temperature);
                     double unexpSkinInt = splitSkin ? aUnexp * sic * (n.SkinUnexposedTemperature - n.Temperature) : 0.0;
                     double skinSkin = splitSkin ? skinSkinK * (n.SkinTemperature - n.SkinUnexposedTemperature) : 0.0;
