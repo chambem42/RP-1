@@ -28,6 +28,10 @@ namespace RP0
         private List<ReentryResult> _results;
         private double[] _peList, _aoaList;
         private string _summary = "";
+
+        /// <summary>The last analysis/prediction summary and the last predicted trace's path, for automation.</summary>
+        public static string LastSummary { get; private set; } = "";
+        public static string LastPredictionPath { get; private set; } = "";
         private string _aeroSource = "";
         private double _elapsedMs;
         private double _gLimitUsed;
@@ -259,6 +263,7 @@ namespace RP0
             }
             sw.Stop();
             _elapsedMs = sw.Elapsed.TotalMilliseconds;
+            LastSummary = _summary;
             TopWindow.ResetSize();
         }
 
@@ -301,6 +306,7 @@ namespace RP0
                 string ship = EditorLogic.fetch.ship.shipName ?? "vessel";
                 string safe = string.Join("_", ship.Split(System.IO.Path.GetInvalidFileNameChars()));
                 string path = System.IO.Path.Combine(dir, $"predicted_{safe}_{DateTime.Now:yyyyMMdd_HHmmss}.csv");
+                LastPredictionPath = path;
                 var inv = System.Globalization.CultureInfo.InvariantCulture;
                 using (var w = new System.IO.StreamWriter(path, false))
                 {
@@ -347,6 +353,7 @@ namespace RP0
             }
             sw.Stop();
             _elapsedMs = sw.Elapsed.TotalMilliseconds;
+            LastSummary = _summary;
             TopWindow.ResetSize();
         }
 
