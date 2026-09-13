@@ -31,6 +31,8 @@ namespace RP0.Reentry
             foreach (Part p in parts)
             {
                 if (p == null || p.physicalSignificance == Part.PhysicalSignificance.NONE && p.mass <= 0f) continue;
+                // launch clamps and towers stay on the pad
+                if (p.FindModuleImplementing<LaunchClamp>() != null) continue;
                 double resMass = p.GetResourceMass(out double resThermal);
                 double dry = p.mass;
                 massT += dry + resMass;

@@ -171,12 +171,22 @@ namespace RP0
             }
         }
 
+        // FAR voxelizes a craft a moment after it loads or changes; running before that would silently fall
+        // back to drag cubes, which are not what the vessel flies with.
+        private bool FarReadyOrExplain()
+        {
+            if (!FarEditorAero.Available || FarEditorAero.Ready) return true;
+            _summary = "FAR is still voxelizing this craft; try again in a moment.";
+            return false;
+        }
+
         private void Run(List<Part> parts, CelestialBody body)
         {
             var sw = Stopwatch.StartNew();
             _results = null; _best = null; _summary = "";
             try
             {
+                if (!FarReadyOrExplain()) return;
                 double peMin = ParseOr(_sPeMin, -50) * 1000.0, peMax = ParseOr(_sPeMax, 80) * 1000.0;
                 int peSteps = Math.Max(1, (int)ParseOr(_sPeSteps, 6));
                 double aoaMax = ParseOr(_sAoAMax, 30);
@@ -275,6 +285,7 @@ namespace RP0
             _results = null; _best = null;
             try
             {
+                if (!FarReadyOrExplain()) return;
                 SimulationParams sp = SpaceCenterManagement.Instance?.SimulationParams;
                 if (sp == null || sp.SimOrbitMode != SimOrbitMode.Reentry)
                 {
