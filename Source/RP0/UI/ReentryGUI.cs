@@ -90,7 +90,7 @@ namespace RP0
                 Run(parts, body);
             if (_best != null && GUILayout.Button(new GUIContent("Set up simulation", "Fill the simulation's Reentry mode with the best pair, to fly it for real."), GUILayout.Width(150)))
                 KCT_GUI.PrefillReentrySim(_best.PeAltitude / 1000.0, _arrival == 0 ? SimReentryArrival.Apoapsis : SimReentryArrival.EntrySpeed,
-                                          ParseOr(_sAp, 250.0), ParseOr(_sEntrySpeed, 11000.0));
+                                          ParseOr(_sAp, 250.0), ParseOr(_sEntrySpeed, 11000.0), _attitude == 0);
             GUILayout.EndHorizontal();
 
             GUILayout.BeginHorizontal();

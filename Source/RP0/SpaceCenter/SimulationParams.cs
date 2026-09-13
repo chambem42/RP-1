@@ -8,6 +8,9 @@ namespace RP0
     // How a Reentry-mode arrival is described, alongside its periapsis.
     public enum SimReentryArrival { Apoapsis, EntrySpeed }
 
+    // Attitude to snap to, and hold with SAS, once a Reentry-mode vessel is on its trajectory.
+    public enum SimReentryAttitude { Prograde, Retrograde, Leave }
+
     public class SimulationParams : ConfigNodePersistenceBase, IConfigNode
     {
         public CelestialBody SimulationBody
@@ -87,6 +90,8 @@ namespace RP0
         public SimReentryArrival SimReentryArrival = SimReentryArrival.Apoapsis;
         [Persistent]
         public double SimEntrySpeed, SimEntryAltitude, SimEntryLeadTime;
+        [Persistent]
+        public SimReentryAttitude SimReentryAttitude = SimReentryAttitude.Prograde;
         // Write per-tick heating data to a CSV, to check the editor's reentry prediction against real flight.
         [Persistent]
         public bool LogReentryTelemetry;

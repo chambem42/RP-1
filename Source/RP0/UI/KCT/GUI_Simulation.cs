@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using UnityEngine;
 using ROUtils;
@@ -301,6 +301,7 @@ namespace RP0
 
         private static readonly string[] _orbitModeLabels = { "Circular", "Elliptical", "Hyperbolic", "Reentry" };
         private static readonly string[] _reentryArrivalLabels = { "Apoapsis", "Entry speed" };
+        private static readonly string[] _reentryAttitudeLabels = { "Prograde", "Retrograde", "Leave" };
 
         private static void DrawOrbitModeRow(SimulationParams simParams)
         {
@@ -358,6 +359,13 @@ namespace RP0
             _sEntryLeadTime = GUILayout.TextField(_sEntryLeadTime, GUILayout.Width(80));
             GUILayout.EndHorizontal();
 
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(new GUIContent("Attitude: ", "Once on the trajectory, point the vessel this way and hold it with SAS. Prograde for a nose-first entry, retrograde for heat-shield first."));
+            int prevAtt = (int)simParams.SimReentryAttitude;
+            int selAtt = GUILayout.SelectionGrid(prevAtt, _reentryAttitudeLabels, 3);
+            if (selAtt != prevAtt) simParams.SimReentryAttitude = (SimReentryAttitude)selAtt;
+            GUILayout.EndHorizontal();
+
             simParams.LogReentryTelemetry = GUILayout.Toggle(simParams.LogReentryTelemetry, new GUIContent(" Log thermal telemetry",
                 "Write per-tick heating data to saves/<save>/RP-1_ReentryLogs/*.csv, for comparing a flown entry against the editor's prediction."));
 
@@ -386,7 +394,7 @@ namespace RP0
         /// Fill the simulation config's Reentry mode from the editor's reentry analysis and open it, so the
         /// predicted corridor can be flown for real.
         /// </summary>
-        public static void PrefillReentrySim(double peKm, SimReentryArrival arrival, double apKm, double entrySpeed)
+        public static void PrefillReentrySim(double peKm, SimReentryArrival arrival, double apKm, double entrySpeed, bool shieldFirst)
         {
             SimulationParams simParams = SpaceCenterManagement.Instance.SimulationParams;
             if (simParams == null) simParams = SpaceCenterManagement.Instance.SimulationParams = new SimulationParams();
@@ -394,6 +402,7 @@ namespace RP0
             simParams.SimulateInOrbit = true;
             simParams.SimOrbitMode = SimOrbitMode.Reentry;
             simParams.SimReentryArrival = arrival;
+            simParams.SimReentryAttitude = shieldFirst ? SimReentryAttitude.Retrograde : SimReentryAttitude.Prograde;
             _sOrbitPe = peKm.ToString("F0");
             _sOrbitAp = apKm.ToString("F0");
             _sEntrySpeed = entrySpeed.ToString("F0");

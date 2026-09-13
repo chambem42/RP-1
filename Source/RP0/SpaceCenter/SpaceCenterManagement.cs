@@ -1328,6 +1328,46 @@ namespace RP0
                 yield return new WaitUntil(() => active == null || !active.packed);
                 yield return TriggerSimStaging(simParams.SimAutostageTarget);
             }
+
+            if (simParams.SimOrbitMode == SimOrbitMode.Reentry && simParams.SimReentryAttitude != SimReentryAttitude.Leave)
+            {
+                Vessel active = FlightGlobals.ActiveVessel;
+                yield return new WaitUntil(() => active == null || !active.packed);
+                yield return new WaitForFixedUpdate();
+                yield return new WaitForFixedUpdate();
+                SetReentryAttitude(active, simParams.SimReentryAttitude == SimReentryAttitude.Retrograde);
+            }
+        }
+
+        // Snap the vessel to surface prograde (nose into the airflow) or retrograde (heat shield first), roof
+        // toward space, and hand it to SAS in the matching hold, so an entry starts trimmed instead of tumbling
+        // from whatever orientation the pad launch left it in.
+        private static void SetReentryAttitude(Vessel v, bool retrograde)
+        {
+            if (v == null || v.ReferenceTransform == null) return;
+            Vector3 nose = (Vector3)v.srf_velocity.normalized;
+            if (nose.sqrMagnitude < 0.5f) return;
+            if (retrograde) nose = -nose;
+            Vector3 roof = Vector3.ProjectOnPlane((Vector3)v.upAxis, nose).normalized;
+            if (roof.sqrMagnitude < 0.5f) roof = Vector3.ProjectOnPlane(Vector3.up, nose).normalized;
+
+            // A vessel's nose is ReferenceTransform.up and its roof is -ReferenceTransform.forward, so the
+            // reference transform we want is LookRotation(nose, roof) rotated 90 deg about X. Rotate the
+            // whole vessel by whatever takes the current reference transform there.
+            Quaternion targetRef = Quaternion.LookRotation(nose, roof) * Quaternion.Euler(90f, 0f, 0f);
+            Quaternion delta = targetRef * Quaternion.Inverse(v.ReferenceTransform.rotation);
+            v.SetRotation(delta * v.vesselTransform.rotation);
+            foreach (Part p in v.parts)
+                if (p.rb != null) p.rb.angularVelocity = Vector3.zero;
+
+            FlightGlobals.SetSpeedMode(FlightGlobals.SpeedDisplayModes.Surface);
+            VesselAutopilot.AutopilotMode mode = retrograde ? VesselAutopilot.AutopilotMode.Retrograde : VesselAutopilot.AutopilotMode.Prograde;
+            v.ActionGroups.SetGroup(KSPActionGroup.SAS, true);
+            if (v.Autopilot != null && v.Autopilot.CanSetMode(mode))
+                v.Autopilot.SetMode(mode);
+            else if (v.Autopilot != null)
+                v.Autopilot.SetMode(VesselAutopilot.AutopilotMode.StabilityAssist);
+            RP0Debug.Log($"Reentry attitude: {(retrograde ? "retrograde" : "prograde")}, SAS {(v.Autopilot != null ? v.Autopilot.Mode.ToString() : "n/a")}", true);
         }
 
         // Places the vessel on the inbound leg of a Reentry-mode arrival, SimEntryLeadTime seconds before the
