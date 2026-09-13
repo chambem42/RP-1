@@ -49,7 +49,7 @@ namespace RP0.Reentry
             }
         }
 
-        public void Forces(double dynPresKPa, double mach, double pseudoReDragMult, out double dragKN, out double liftKN)
+        public void Forces(double dynPresKPa, double mach, double altitude, double pseudoReDragMult, out double dragKN, out double liftKN)
         {
             int i = Index(mach, out double f);
             double dA = _dragArea[i] + (i + 1 < _mach.Length ? (_dragArea[i + 1] - _dragArea[i]) * f : 0.0);
@@ -75,22 +75,33 @@ namespace RP0.Reentry
     /// FerramAerospaceResearch.FARGUI.FAREditorGUI.EditorGUI.Instance -> _instantSim (InstantConditionSim)
     /// -> GetClCdCmSteady(InstantConditionSimInput, out InstantConditionSimOutput, bool, bool). Cl/Cd come
     /// back referenced to the wing area, or to the body's maximum cross-section for a wingless vehicle.
+    /// <para>
+    /// Stock FAR runs that sim in continuum flow (pseudo-Knudsen 0, a fixed Reynolds), which overstates
+    /// lift in the 70-95 km band where the heating happens. A FAR build with InstantConditionSim.AeroCondition
+    /// and SimAeroCondition.ForFlightPoint (chambm's fork) lets each sample be taken at the flight-point
+    /// Reynolds/Knudsen; when that is present, Cl/Cd are sampled over Mach x altitude instead of Mach alone.
+    /// </para>
     /// </summary>
     public class FarEditorAero : IReentryAero
     {
         private static bool _resolved, _available;
         private static Type _editorGuiType, _inputType, _outputType, _simType;
-        private static PropertyInfo _instanceProp, _readyProp;
-        private static FieldInfo _instantSimField, _wingListField, _maxCrossSectionField;
+        private static PropertyInfo _instanceProp, _readyProp, _aeroConditionProp;
+        private static FieldInfo _instantSimField, _wingListField, _maxCrossSectionField, _bodyLengthField;
         private static FieldInfo _inAlpha, _inMach, _outCl, _outCd;
-        private static MethodInfo _getClCdCm;
+        private static MethodInfo _getClCdCm, _forFlightPoint;
         private static FieldInfo _wingAreaField;
 
-        private readonly double[] _mach, _cl, _cd;
+        /// <summary>Altitudes (m) the flight-condition sampling is taken at, when supported.</summary>
+        public static readonly double[] AltitudeSamples = { 20000, 40000, 55000, 65000, 75000, 85000, 95000, 110000, 140000 };
+
+        private readonly double[] _mach, _alt;
+        private readonly double[,] _cl, _cd;     // [alt, mach]; a single altitude row when flight conditions are unsupported
         private readonly double _refArea;
         private readonly double _liftSign;
+        private readonly bool _flightConditions;
 
-        public string Description => "FAR editor aero";
+        public string Description => _flightConditions ? "FAR editor aero at flight Re/Kn" : "FAR editor aero (continuum)";
 
         public static bool Available
         {
@@ -100,6 +111,9 @@ namespace RP0.Reentry
                 return _available;
             }
         }
+
+        /// <summary>True when the loaded FAR can run its editor sim at a given flight point's Reynolds / Knudsen.</summary>
+        public static bool SupportsFlightConditions => Available && _aeroConditionProp != null && _forFlightPoint != null && _bodyLengthField != null;
 
         /// <summary>True when FAR has an editor sim with a valid voxelization to query.</summary>
         public static bool Ready
@@ -129,6 +143,7 @@ namespace RP0.Reentry
                     _outputType = asm.GetType("FerramAerospaceResearch.FARGUI.FAREditorGUI.Simulation.InstantConditionSimOutput");
                     Type wingType = asm.GetType("FerramAerospaceResearch.FARAeroComponents.FARWingAerodynamicModel")
                                     ?? asm.GetType("ferram4.FARWingAerodynamicModel");
+                    Type condType = asm.GetType("FerramAerospaceResearch.FARGUI.FAREditorGUI.Simulation.SimAeroCondition");
                     if (_editorGuiType == null || _simType == null || _inputType == null || _outputType == null) break;
 
                     const BindingFlags any = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
@@ -137,12 +152,18 @@ namespace RP0.Reentry
                     _readyProp = _simType.GetProperty("Ready", any);
                     _wingListField = _simType.GetField("_wingAerodynamicModel", any);
                     _maxCrossSectionField = _simType.GetField("_maxCrossSectionFromBody", any);
+                    _bodyLengthField = _simType.GetField("_bodyLength", any);
                     _getClCdCm = _simType.GetMethod("GetClCdCmSteady", any);
                     _inAlpha = _inputType.GetField("alpha", any);
                     _inMach = _inputType.GetField("machNumber", any);
                     _outCl = _outputType.GetField("Cl", any);
                     _outCd = _outputType.GetField("Cd", any);
                     if (wingType != null) _wingAreaField = wingType.GetField("S", any);
+                    // Optional, fork-only: per-sample flight conditions.
+                    _aeroConditionProp = _simType.GetProperty("AeroCondition", any);
+                    if (condType != null)
+                        _forFlightPoint = condType.GetMethod("ForFlightPoint", any, null,
+                                                             new[] { typeof(CelestialBody), typeof(double), typeof(double), typeof(double) }, null);
 
                     _available = _instanceProp != null && _instantSimField != null && _getClCdCm != null
                                  && _inAlpha != null && _inMach != null && _outCl != null && _outCd != null;
@@ -162,31 +183,63 @@ namespace RP0.Reentry
             return gui == null ? null : _instantSimField.GetValue(gui);
         }
 
-        public FarEditorAero(double aoaDeg, bool shieldFirst, Vector3 forward, Vector3 up, Vector3 liftAxis)
+        public FarEditorAero(CelestialBody body, double aoaDeg, bool shieldFirst, Vector3 forward, Vector3 up, Vector3 liftAxis)
         {
-            _mach = ReentryVesselBuilder.MachSamples;
-            _cl = new double[_mach.Length];
-            _cd = new double[_mach.Length];
             object sim = InstantSim();
             if (sim == null) throw new InvalidOperationException("FAR editor sim not running");
+            _flightConditions = SupportsFlightConditions && body != null;
+
+            _mach = ReentryVesselBuilder.MachSamples;
+            if (_flightConditions)
+            {
+                var alts = new List<double>();
+                foreach (double a in AltitudeSamples) if (a < body.atmosphereDepth) alts.Add(a);
+                alts.Add(body.atmosphereDepth);
+                _alt = alts.ToArray();
+            }
+            else
+            {
+                _alt = new[] { 0.0 };
+            }
+            _cl = new double[_alt.Length, _mach.Length];
+            _cd = new double[_alt.Length, _mach.Length];
 
             // FAR's alpha is measured from +forward; a shield-first entry is alpha = 180 - AoA.
             double alpha = shieldFirst ? 180.0 - aoaDeg : aoaDeg;
-            double a = alpha * Math.PI / 180.0;
+            double a0 = alpha * Math.PI / 180.0;
             // FAR reports Cl along -liftDown, liftDown = -forward*sin(a) - up*cos(a); express that on our lift axis.
-            Vector3 liftDir = (forward * (float)Math.Sin(a) + up * (float)Math.Cos(a)).normalized;
+            Vector3 liftDir = (forward * (float)Math.Sin(a0) + up * (float)Math.Cos(a0)).normalized;
             _liftSign = Vector3.Dot(liftDir, liftAxis);
 
             object input = Activator.CreateInstance(_inputType);
             _inAlpha.SetValue(input, alpha);
-            for (int m = 0; m < _mach.Length; ++m)
+            double lengthScale = _flightConditions ? Math.Max(1.0, Convert.ToDouble(_bodyLengthField.GetValue(sim))) : 1.0;
+            try
             {
-                _inMach.SetValue(input, _mach[m]);
-                object[] args = { input, null, m == 0, false };
-                _getClCdCm.Invoke(sim, args);
-                object output = args[1];
-                _cl[m] = Convert.ToDouble(_outCl.GetValue(output));
-                _cd[m] = Convert.ToDouble(_outCd.GetValue(output));
+                bool first = true;
+                for (int ai = 0; ai < _alt.Length; ++ai)
+                {
+                    for (int m = 0; m < _mach.Length; ++m)
+                    {
+                        if (_flightConditions)
+                        {
+                            object cond = _forFlightPoint.Invoke(null, new object[] { body, _alt[ai], _mach[m], lengthScale });
+                            _aeroConditionProp.SetValue(sim, cond, null);
+                        }
+                        _inMach.SetValue(input, _mach[m]);
+                        object[] args = { input, null, first, false };
+                        first = false;
+                        _getClCdCm.Invoke(sim, args);
+                        object output = args[1];
+                        _cl[ai, m] = Convert.ToDouble(_outCl.GetValue(output));
+                        _cd[ai, m] = Convert.ToDouble(_outCd.GetValue(output));
+                    }
+                }
+            }
+            finally
+            {
+                // Leave FAR's own static-analysis tab as we found it.
+                if (_flightConditions) _aeroConditionProp.SetValue(sim, null, null);
             }
 
             _refArea = 0.0;
@@ -200,39 +253,49 @@ namespace RP0.Reentry
 
         public double ReferenceArea => _refArea;
 
-        public void Forces(double dynPresKPa, double mach, double pseudoReDragMult, out double dragKN, out double liftKN)
+        public void Forces(double dynPresKPa, double mach, double altitude, double pseudoReDragMult, out double dragKN, out double liftKN)
         {
-            int last = _mach.Length - 1;
-            double cl, cd;
-            if (mach <= _mach[0]) { cl = _cl[0]; cd = _cd[0]; }
-            else if (mach >= _mach[last]) { cl = _cl[last]; cd = _cd[last]; }
-            else
-            {
-                int i = 0;
-                while (i < last - 1 && _mach[i + 1] < mach) ++i;
-                double f = (mach - _mach[i]) / (_mach[i + 1] - _mach[i]);
-                cl = _cl[i] + (_cl[i + 1] - _cl[i]) * f;
-                cd = _cd[i] + (_cd[i + 1] - _cd[i]) * f;
-            }
+            Index(_mach, mach, out int mi, out double mf);
+            Index(_alt, altitude, out int ai, out double af);
+            double cl = Bilinear(_cl, ai, af, mi, mf);
+            double cd = Bilinear(_cd, ai, af, mi, mf);
             dragKN = dynPresKPa * cd * _refArea;
             liftKN = dynPresKPa * cl * _refArea * _liftSign;
         }
-    }
 
+        private static void Index(double[] axis, double x, out int i, out double f)
+        {
+            int last = axis.Length - 1;
+            if (last == 0 || x <= axis[0]) { i = 0; f = 0.0; return; }
+            if (x >= axis[last]) { i = last; f = 0.0; return; }
+            i = 0;
+            while (i < last - 1 && axis[i + 1] < x) ++i;
+            f = (x - axis[i]) / (axis[i + 1] - axis[i]);
+        }
+
+        private static double Bilinear(double[,] t, int ai, double af, int mi, double mf)
+        {
+            int aj = af > 0.0 && ai + 1 < t.GetLength(0) ? ai + 1 : ai;
+            int mj = mf > 0.0 && mi + 1 < t.GetLength(1) ? mi + 1 : mi;
+            double r0 = t[ai, mi] + (t[ai, mj] - t[ai, mi]) * mf;
+            double r1 = t[aj, mi] + (t[aj, mj] - t[aj, mi]) * mf;
+            return r0 + (r1 - r0) * af;
+        }
+    }
     /// <summary>Picks FAR when it is present and voxelized, otherwise stock drag cubes.</summary>
     public class DefaultAeroFactory : IReentryAeroFactory
     {
         public bool PreferFar = true;
         public string LastSource = "";
 
-        public IReentryAero Create(List<ReentryNode> nodes, Vector3 velDir, Vector3 liftAxis, Vector3 forward, Vector3 up,
+        public IReentryAero Create(CelestialBody body, List<ReentryNode> nodes, Vector3 velDir, Vector3 liftAxis, Vector3 forward, Vector3 up,
                                    double aoaDeg, bool shieldFirst, ReentryConstants k)
         {
             if (PreferFar && FarEditorAero.Ready)
             {
                 try
                 {
-                    var far = new FarEditorAero(aoaDeg, shieldFirst, forward, up, liftAxis);
+                    var far = new FarEditorAero(body, aoaDeg, shieldFirst, forward, up, liftAxis);
                     LastSource = far.Description;
                     return far;
                 }

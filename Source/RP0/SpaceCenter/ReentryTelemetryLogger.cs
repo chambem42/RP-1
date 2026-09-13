@@ -86,7 +86,7 @@ namespace RP0
             double brtExposed = haveFI ? fi.backgroundRadiationTempExposed : double.NaN;
 
             var sb = new StringBuilder(320);
-            Append(sb, ut);
+            sb.Append(ut.ToString("R", CultureInfo.InvariantCulture)).Append(',');   // UT needs more than 9 digits
             Append(sb, v.missionTime);
             Append(sb, v.altitude);
             Append(sb, v.srfSpeed);

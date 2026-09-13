@@ -74,7 +74,7 @@ namespace RP0.Reentry
 
                 double pseudoRe = density * vAir;
                 double pseudoReDragMult = density > 0.0 ? PhysicsGlobals.DragCurvePseudoReynolds.Evaluate((float)pseudoRe) : 1.0;
-                att.Aero.Forces(q, mach, pseudoReDragMult, out double dragKN, out double liftKN);
+                att.Aero.Forces(q, mach, alt, pseudoReDragMult, out double dragKN, out double liftKN);
                 double aDrag = dragKN / att.MassT;
                 double aLift = liftSign * liftKN / att.MassT;
 

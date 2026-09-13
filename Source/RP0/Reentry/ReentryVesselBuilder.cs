@@ -103,7 +103,7 @@ namespace RP0.Reentry
 
             att.Nodes = nodes;
             att.MassT = Math.Max(massT, 0.001);
-            att.Aero = aeroFactory.Create(nodes, velDir, liftAxis, forward, up, aoaDeg, shieldFirst, k);
+            att.Aero = aeroFactory.Create(body, nodes, velDir, liftAxis, forward, up, aoaDeg, shieldFirst, k);
             return att;
         }
 
@@ -193,7 +193,7 @@ namespace RP0.Reentry
 
     public interface IReentryAeroFactory
     {
-        IReentryAero Create(List<ReentryNode> nodes, Vector3 velDir, Vector3 liftAxis, Vector3 forward, Vector3 up,
+        IReentryAero Create(CelestialBody body, List<ReentryNode> nodes, Vector3 velDir, Vector3 liftAxis, Vector3 forward, Vector3 up,
                             double aoaDeg, bool shieldFirst, ReentryConstants k);
     }
 }

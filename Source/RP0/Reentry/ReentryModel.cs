@@ -131,7 +131,7 @@ namespace RP0.Reentry
         double ReferenceArea { get; }
         /// <summary>Drag and signed lift (kN) at the given dynamic pressure (kPa), Mach and pseudo-Reynolds drag multiplier.
         /// Positive lift is toward the vessel's "up" side; the caller flips it for a lift-down attitude.</summary>
-        void Forces(double dynPresKPa, double mach, double pseudoReDragMult, out double dragKN, out double liftKN);
+        void Forces(double dynPresKPa, double mach, double altitude, double pseudoReDragMult, out double dragKN, out double liftKN);
     }
 
     /// <summary>Everything about one attitude: the nodes with their aero samples, plus the vessel aero.</summary>
