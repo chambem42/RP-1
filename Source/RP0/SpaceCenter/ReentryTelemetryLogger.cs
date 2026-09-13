@@ -29,7 +29,7 @@ namespace RP0
             "part,skinTemperature,skinMaxTemp,temperature,maxTemp," +
             "exposedArea,radiativeArea,convectionFlux,radiationFlux,skinToInternalFlux," +
             "aoa,cl,cd,refArea,brtExposed,trimPitch," +
-            "sideslip,liftKN,dragKN,sideKN,wingLiftKN,wingDragKN";
+            "sideslip,liftKN,dragKN,sideKN,wingLiftKN,wingDragKN,bank";
 
         // FAR's flight readouts, by reflection (FARAPI is public static). Optional: blank columns without FAR.
         private static bool _farResolved;
@@ -120,7 +120,8 @@ namespace RP0
             Append(sb, v.ctrlState != null ? v.ctrlState.pitch : double.NaN);   // pitch input incl. SAS, for trim comparison
             Append(sb, FarValue(_farSideslip, v));
             AeroForceBreakdown(v, out double lift, out double drag, out double side, out double wingLift, out double wingDrag);
-            Append(sb, lift); Append(sb, drag); Append(sb, side); Append(sb, wingLift); Append(sb, wingDrag, last: true);
+            Append(sb, lift); Append(sb, drag); Append(sb, side); Append(sb, wingLift); Append(sb, wingDrag);
+            Append(sb, BankAngle(v), last: true);
 
             try
             {
@@ -277,6 +278,17 @@ namespace RP0
             if (m == null) return double.NaN;
             try { return Convert.ToDouble(m.Invoke(null, new object[] { v })); }
             catch { return double.NaN; }
+        }
+
+        /// <summary>Bank: the roof's angle from local up, measured around the airspeed (0 = roof to the sky, 180 = inverted).</summary>
+        public static double BankAngle(Vessel v)
+        {
+            if (v?.ReferenceTransform == null || v.srfSpeed < 1) return double.NaN;
+            Vector3 velNorm = v.srf_velocity.normalized;
+            Vector3 roof = Vector3.ProjectOnPlane(-v.ReferenceTransform.forward, velNorm);
+            Vector3 up = Vector3.ProjectOnPlane((v.CoMD - v.mainBody.position).normalized, velNorm);
+            if (roof.sqrMagnitude < 1e-6 || up.sqrMagnitude < 1e-6) return double.NaN;
+            return Vector3.SignedAngle(up, roof, velNorm);
         }
 
         // Per-wing breakdown (FARWingAerodynamicModel: area, MAC, Cl, Cd, stall fraction, force) every 30 s of

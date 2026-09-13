@@ -344,7 +344,7 @@ namespace RP0
                             s.AoA.ToString("G9", inv), s.Cl.ToString("G9", inv), s.Cd.ToString("G9", inv), s.RefArea.ToString("G9", inv),
                             s.BackgroundTempExposed.ToString("G9", inv), s.TrimPitch.ToString("G9", inv),
                             s.Sideslip.ToString("G9", inv), s.LiftKN.ToString("G9", inv), s.DragKN.ToString("G9", inv), s.SideKN.ToString("G9", inv),
-                            s.WingLiftKN.ToString("G9", inv), s.WingDragKN.ToString("G9", inv) }));
+                            s.WingLiftKN.ToString("G9", inv), s.WingDragKN.ToString("G9", inv), "0" }));
                     }
                 }
                 using (var w = new System.IO.StreamWriter(path.Replace(".csv", "") + ".parts.csv", false))
