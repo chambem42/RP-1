@@ -189,7 +189,7 @@ namespace RP0
                 var attitudes = new ReentryAttitude[aoaSteps];
                 for (int ai = 0; ai < aoaSteps; ++ai)
                     attitudes[ai] = ReentryVesselBuilder.Build(parts, body, k, _aoaList[ai], shieldFirst, factory);
-                _aeroSource = factory.LastSource;
+                _aeroSource = $"{factory.LastSource}, {solver.ThermalModelDescription} heating";
 
                 _results = new List<ReentryResult>(peSteps * aoaSteps);
                 var corridor = new Dictionary<double, KeyValuePair<double, double>>();
@@ -274,7 +274,7 @@ namespace RP0
                 var solver = new ReentrySolver(body, k);
                 var factory = new DefaultAeroFactory();
                 ReentryAttitude att = ReentryVesselBuilder.Build(parts, body, k, aoa, _attitude == 0, factory);
-                _aeroSource = factory.LastSource;
+                _aeroSource = $"{factory.LastSource}, {solver.ThermalModelDescription} heating";
                 if (!solver.TryEntryState(sp.SimOrbitPe, sp.SimReentryArrival, sp.SimOrbitAp, sp.SimEntrySpeed, sp.SimEntryAltitude,
                                           out double v0, out double fpa, out string err))
                 {
@@ -301,7 +301,9 @@ namespace RP0
                             s.AtmosphericTemperature.ToString("G9", inv), s.ExternalTemperature.ToString("G9", inv), s.ConvectiveCoefficient.ToString("G9", inv),
                             s.Part, s.SkinTemperature.ToString("G9", inv), s.SkinMaxTemp.ToString("G9", inv), s.Temperature.ToString("G9", inv), s.MaxTemp.ToString("G9", inv),
                             s.ExposedArea.ToString("G9", inv), s.RadiativeArea.ToString("G9", inv), s.ConvectionFlux.ToString("G9", inv),
-                            s.RadiationFlux.ToString("G9", inv), s.SkinToInternalFlux.ToString("G9", inv) }));
+                            s.RadiationFlux.ToString("G9", inv), s.SkinToInternalFlux.ToString("G9", inv),
+                            s.AoA.ToString("G9", inv), s.Cl.ToString("G9", inv), s.Cd.ToString("G9", inv), s.RefArea.ToString("G9", inv),
+                            s.BackgroundTempExposed.ToString("G9", inv) }));
                     }
                 }
                 _summary = $"Predicted (Pe {sp.SimOrbitPe / 1000:N0} km, entry {v0:N0} m/s at {fpa:N2}°, AoA {aoa:N0}°): {Describe(r.Outcome)} - " +

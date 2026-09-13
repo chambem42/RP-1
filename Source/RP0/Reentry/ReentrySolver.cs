@@ -18,6 +18,7 @@ namespace RP0.Reentry
         private readonly CelestialBody _body;
         private readonly ReentryConstants _k;
         private readonly double _atmDepth, _radius, _mu, _surfaceRotSpeed;
+        private readonly RealHeatBridge _realHeat;
 
         /// <summary>Seconds between trace samples when a trace list is supplied, matching the telemetry logger.</summary>
         public const double TraceInterval = 0.5;
@@ -32,7 +33,11 @@ namespace RP0.Reentry
             // The game heats and drags with surface-relative speed. The trajectory is integrated inertially,
             // so for a prograde equatorial entry the airspeed is the inertial speed less the ground's.
             _surfaceRotSpeed = body.rotates && body.rotationPeriod != 0.0 ? 2.0 * Math.PI * body.Radius / Math.Abs(body.rotationPeriod) : 0.0;
+            _realHeat = RealHeatBridge.For(body);
         }
+
+        /// <summary>Which heating model the solver is following, for the UI.</summary>
+        public string ThermalModelDescription => _realHeat != null ? "RealHeat" : "stock";
 
         public ReentryResult Simulate(ReentryAttitude att, double entryAlt, double entrySpeed, double entryFpaDeg,
                                       bool liftDown, double startTemp = 293.15, List<ReentryTraceSample> trace = null)
@@ -84,13 +89,13 @@ namespace RP0.Reentry
 
                 if (density > 0.0)
                 {
-                    StepThermal(att, dt, density, vAir, mach, ambientT, ref peakFluxRate, ref res, alt);
+                    StepThermal(att, dt, density, vAir, mach, q, ambientT, ref peakFluxRate, ref res, alt);
                 }
 
                 if (trace != null && t >= nextTrace && density > 0.0)
                 {
                     nextTrace = t + TraceInterval;
-                    trace.Add(Sample(att, t, alt, vAir, mach, density, q, gees, ambientT));
+                    trace.Add(Sample(att, t, alt, vAir, mach, density, q, gees, ambientT, dragKN, liftSign * liftKN));
                 }
 
                 double dv = (-aDrag - g * Math.Sin(gamma)) * dt;
@@ -177,13 +182,13 @@ namespace RP0.Reentry
             return c * _k.ConvectionMultiplier;
         }
 
-        private double DensityThermalLerp(double density, double mach)
+        private double DensityThermalLerp(double density, double mach, double gamma)
         {
             double n = density;
             if (mach > 1.0)
             {
                 double m2 = mach * mach;
-                n = (_k.AdiabaticIndex + 1.0) * m2 / (2.0 + (_k.AdiabaticIndex - 1.0) * m2) * n;
+                n = (gamma + 1.0) * m2 / (2.0 + (gamma - 1.0) * m2) * n;
             }
             if (n < 0.0625) return 1.0 - Math.Sqrt(Math.Sqrt(n));
             if (n < 0.25) return 0.75 - Math.Sqrt(n);
@@ -192,17 +197,33 @@ namespace RP0.Reentry
 
         // ---- per-part thermal step -----------------------------------------------------------------
 
-        private void StepThermal(ReentryAttitude att, double dt, double density, double spd, double mach, double ambientT,
+        private void StepThermal(ReentryAttitude att, double dt, double density, double spd, double mach, double q, double ambientT,
                                  ref double peakFluxRate, ref ReentryResult res, double alt)
         {
             double machLerp = ConvectiveMachLerp(mach);
-            double extT = Math.Max(ambientT, ShockTemperature(spd, machLerp));
-            double convCoeff = ConvectiveCoefficient(density, spd, machLerp);
+            double extT, convCoeff, dtl;
+            if (_realHeat != null)
+            {
+                // RealHeat.UpdateThermodynamicsPre: real-gas shock temperature, shock-density lerp with that
+                // gas's gamma, and the convective coefficient cut at low dynamic pressure.
+                extT = ambientT + _realHeat.TempRise(spd);
+                convCoeff = ConvectiveCoefficient(density, spd, machLerp);
+                double lerpVal = q * _realHeat.DynamicPressureMultiplier;
+                if (lerpVal < 1.0)
+                    convCoeff *= _realHeat.MinConvectiveCoefficientMultLowQ + (1.0 - _realHeat.MinConvectiveCoefficientMultLowQ) * lerpVal;
+                dtl = DensityThermalLerp(density, mach, _realHeat.Gamma(spd));
+            }
+            else
+            {
+                extT = Math.Max(ambientT, ShockTemperature(spd, machLerp));
+                convCoeff = ConvectiveCoefficient(density, spd, machLerp);
+                dtl = DensityThermalLerp(density, mach, _k.AdiabaticIndex);
+            }
             _lastExtT = extT;
             _lastConvCoeff = convCoeff;
-            double dtl = DensityThermalLerp(density, mach);
             double brt = ambientT + (_k.SpaceTemperature - ambientT) * dtl;
             double brtExposed = extT + (_k.SpaceTemperature - extT) * dtl;
+            _lastBrtExposed = brtExposed;
             double pseudoRe = density * spd;
             double turbRecip = 1.0 / (_k.TurbulentConvectionEnd - _k.TurbulentConvectionStart);
             double areaLerp = -_k.FullConvectionAreaMin + (mach - _k.FullToCrossSectionLerpStart) / (_k.FullToCrossSectionLerpEnd - _k.FullToCrossSectionLerpStart);
@@ -348,11 +369,11 @@ namespace RP0.Reentry
             }
         }
 
-        private double _lastExtT, _lastConvCoeff;
+        private double _lastExtT, _lastConvCoeff, _lastBrtExposed;
 
         // A trace row for the part closest to its limit, mirroring ReentryTelemetryLogger.FindHottestPart.
         private ReentryTraceSample Sample(ReentryAttitude att, double t, double alt, double vAir, double mach, double density,
-                                          double q, double gees, double ambientT)
+                                          double q, double gees, double ambientT, double dragKN, double liftKN)
         {
             ReentryNode hot = null;
             double best = double.NegativeInfinity;
@@ -366,7 +387,10 @@ namespace RP0.Reentry
             {
                 Time = t, Altitude = alt, Airspeed = vAir, Mach = mach, Density = density, DynPresKPa = q, GeeForce = gees,
                 AtmosphericTemperature = ambientT, ExternalTemperature = _lastExtT, ConvectiveCoefficient = _lastConvCoeff,
-                Part = hot != null ? (hot.Part != null && hot.Part.partInfo != null ? hot.Part.partInfo.name : hot.Name) : ""
+                Part = hot != null ? (hot.Part != null && hot.Part.partInfo != null ? hot.Part.partInfo.name : hot.Name) : "",
+                AoA = att.AoADeg, RefArea = att.Aero.ReferenceArea, BackgroundTempExposed = _lastBrtExposed,
+                Cl = q > 0.0 ? liftKN / (q * att.Aero.ReferenceArea) : 0.0,
+                Cd = q > 0.0 ? dragKN / (q * att.Aero.ReferenceArea) : 0.0
             };
             if (hot != null)
             {

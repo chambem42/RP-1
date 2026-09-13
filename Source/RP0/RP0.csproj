@@ -274,6 +274,7 @@
     <Compile Include="Reentry\ReentrySolver.cs" />
     <Compile Include="Reentry\ReentryVesselBuilder.cs" />
     <Compile Include="Reentry\ReentryAero.cs" />
+    <Compile Include="Reentry\RealHeatBridge.cs" />
     <Compile Include="UI\ReentryGUI.cs" />
     <Compile Include="Utilities\ECMHelper.cs" />
     <Compile Include="Utilities\LambertSolver.cs" />

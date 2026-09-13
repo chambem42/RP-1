@@ -127,6 +127,8 @@ namespace RP0.Reentry
     public interface IReentryAero
     {
         string Description { get; }
+        /// <summary>Area the reported Cl/Cd are referenced to (1.0 when the model works in force areas).</summary>
+        double ReferenceArea { get; }
         /// <summary>Drag and signed lift (kN) at the given dynamic pressure (kPa), Mach and pseudo-Reynolds drag multiplier.
         /// Positive lift is toward the vessel's "up" side; the caller flips it for a lift-down attitude.</summary>
         void Forces(double dynPresKPa, double mach, double pseudoReDragMult, out double dragKN, out double liftKN);
@@ -153,6 +155,7 @@ namespace RP0.Reentry
         public string Part;
         public double SkinTemperature, SkinMaxTemp, Temperature, MaxTemp;
         public double ExposedArea, RadiativeArea, ConvectionFlux, RadiationFlux, SkinToInternalFlux;
+        public double AoA, Cl, Cd, RefArea, BackgroundTempExposed;
     }
 
     public class ReentryResult

@@ -16,6 +16,7 @@ namespace RP0.Reentry
         private readonly double _dragMult, _bodyLiftMult;
 
         public string Description => "stock drag cubes";
+        public double ReferenceArea => 1.0;
 
         public DragCubeAero(List<ReentryNode> nodes, Vector3 velDir, Vector3 liftAxis, ReentryConstants k)
         {

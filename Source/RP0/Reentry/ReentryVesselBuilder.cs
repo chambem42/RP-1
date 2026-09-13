@@ -63,6 +63,8 @@ namespace RP0.Reentry
             foreach (ReentryNode n in nodes) n.Part.DragCubes.SetDragWeights();
             foreach (ReentryNode n in nodes) { n.Part.DragCubes.RequestOcclusionUpdate(); n.Part.DragCubes.SetPartOcclusion(); }
 
+            // RealHeat retunes the OcclusionCone statics from a flight-scene addon; match that here.
+            RealHeatBridge.ApplyOcclusionSettings();
             var occ = new List<OcclusionData>(nodes.Count);
             for (int i = 0; i < nodes.Count; ++i) occ.Add(ptds[i].convectionData);
 

@@ -27,7 +27,12 @@ namespace RP0
             "ut,missionTime,altitude,srfSpeed,mach,atmDensity,dynPreskPa,geeForce," +
             "atmosphericTemperature,externalTemperature,convectiveCoefficient," +
             "part,skinTemperature,skinMaxTemp,temperature,maxTemp," +
-            "exposedArea,radiativeArea,convectionFlux,radiationFlux,skinToInternalFlux";
+            "exposedArea,radiativeArea,convectionFlux,radiationFlux,skinToInternalFlux," +
+            "aoa,cl,cd,refArea,brtExposed";
+
+        // FAR's flight readouts, by reflection (FARAPI is public static). Optional: blank columns without FAR.
+        private static bool _farResolved;
+        private static System.Reflection.MethodInfo _farAoA, _farCl, _farCd, _farRefArea;
 
         private StreamWriter _writer;
         private string _path;
@@ -72,7 +77,15 @@ namespace RP0
                 return;
             }
 
-            var sb = new StringBuilder(256);
+            // Prefer the integrator's own values: mods hooked through ModularFlightIntegrator (RealHeat) rewrite
+            // the FI fields after the vessel copies were taken, so the vessel's are the pre-hook numbers.
+            FlightIntegrator fi = FlightIntegrator.ActiveVesselFI;
+            bool haveFI = fi != null && fi.Vessel == v;
+            double extT = haveFI ? fi.externalTemperature : v.externalTemperature;
+            double convCoeff = haveFI ? fi.convectiveCoefficient : v.convectiveCoefficient;
+            double brtExposed = haveFI ? fi.backgroundRadiationTempExposed : double.NaN;
+
+            var sb = new StringBuilder(320);
             Append(sb, ut);
             Append(sb, v.missionTime);
             Append(sb, v.altitude);
@@ -82,8 +95,8 @@ namespace RP0
             Append(sb, v.dynamicPressurekPa);
             Append(sb, v.geeForce);
             Append(sb, v.atmosphericTemperature);
-            Append(sb, v.externalTemperature);
-            Append(sb, v.convectiveCoefficient);
+            Append(sb, extT);
+            Append(sb, convCoeff);
             sb.Append(hottest.partInfo != null ? hottest.partInfo.name : hottest.name).Append(',');
             Append(sb, hottest.skinTemperature);
             Append(sb, hottest.skinMaxTemp);
@@ -93,7 +106,12 @@ namespace RP0
             Append(sb, hottest.radiativeArea);
             Append(sb, hottest.thermalConvectionFlux);
             Append(sb, hottest.thermalRadiationFlux);
-            Append(sb, hottest.skinToInternalFlux, last: true);
+            Append(sb, hottest.skinToInternalFlux);
+            Append(sb, FarValue(_farAoA, v));
+            Append(sb, FarValue(_farCl, v));
+            Append(sb, FarValue(_farCd, v));
+            Append(sb, FarValue(_farRefArea, v));
+            Append(sb, brtExposed, last: true);
 
             try
             {
@@ -170,8 +188,41 @@ namespace RP0
 
         private static void Append(StringBuilder sb, double value, bool last = false)
         {
-            sb.Append(value.ToString("G9", CultureInfo.InvariantCulture));
+            if (!double.IsNaN(value)) sb.Append(value.ToString("G9", CultureInfo.InvariantCulture));
             if (!last) sb.Append(',');
+        }
+
+        private static double FarValue(System.Reflection.MethodInfo m, Vessel v)
+        {
+            if (!_farResolved) ResolveFar();
+            if (m == null) return double.NaN;
+            try { return Convert.ToDouble(m.Invoke(null, new object[] { v })); }
+            catch { return double.NaN; }
+        }
+
+        private static void ResolveFar()
+        {
+            _farResolved = true;
+            try
+            {
+                foreach (AssemblyLoader.LoadedAssembly la in AssemblyLoader.loadedAssemblies)
+                {
+                    if (la.name != "FerramAerospaceResearch") continue;
+                    Type api = la.assembly.GetType("FerramAerospaceResearch.FARAPI");
+                    if (api == null) break;
+                    var flags = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static;
+                    var sig = new[] { typeof(Vessel) };
+                    _farAoA = api.GetMethod("VesselAoA", flags, null, sig, null);
+                    _farCl = api.GetMethod("VesselLiftCoeff", flags, null, sig, null);
+                    _farCd = api.GetMethod("VesselDragCoeff", flags, null, sig, null);
+                    _farRefArea = api.GetMethod("VesselRefArea", flags, null, sig, null);
+                    break;
+                }
+            }
+            catch (Exception ex)
+            {
+                RP0Debug.LogWarning($"FARAPI unavailable to the reentry telemetry: {ex.Message}");
+            }
         }
     }
 }
