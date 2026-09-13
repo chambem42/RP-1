@@ -192,12 +192,12 @@ namespace RP0.Reentry
         public string Part;
         public double SkinTemperature, SkinMaxTemp, Temperature, MaxTemp, SkinUnexposedTemperature;
         public double ExposedArea, RadiativeArea, SkinExposedAreaFrac, TempMult, CoeffMult, AreaMult;
-        public double ConvectionFlux, RadiationFlux, SkinToInternalFlux, SkinThermalMass, ThermalMass, HeatConvectiveConstant, EmissiveConstant;
+        public double ConvectionFlux, RadiationFlux, SkinToInternalFlux, SkinThermalMass, ThermalMass, HeatConvectiveConstant, EmissiveConstant, Mass, ResourceMass;
 
         public const string Header =
             "ut,missionTime,altitude,part,skinTemperature,skinMaxTemp,temperature,maxTemp,skinUnexposedTemperature," +
             "exposedArea,radiativeArea,skinExposedAreaFrac,convTempMult,convCoeffMult,convAreaMult," +
-            "convectionFlux,radiationFlux,skinToInternalFlux,skinThermalMass,thermalMass,heatConvectiveConstant,emissiveConstant";
+            "convectionFlux,radiationFlux,skinToInternalFlux,skinThermalMass,thermalMass,heatConvectiveConstant,emissiveConstant,mass,resourceMass";
     }
 
     public class ReentryResult

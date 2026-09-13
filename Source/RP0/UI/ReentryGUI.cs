@@ -370,7 +370,8 @@ namespace RP0
                             s.TempMult.ToString("G9", inv), s.CoeffMult.ToString("G9", inv), s.AreaMult.ToString("G9", inv),
                             s.ConvectionFlux.ToString("G9", inv), s.RadiationFlux.ToString("G9", inv), s.SkinToInternalFlux.ToString("G9", inv),
                             s.SkinThermalMass.ToString("G9", inv), s.ThermalMass.ToString("G9", inv),
-                            s.HeatConvectiveConstant.ToString("G9", inv), s.EmissiveConstant.ToString("G9", inv) }));
+                            s.HeatConvectiveConstant.ToString("G9", inv), s.EmissiveConstant.ToString("G9", inv),
+                            s.Mass.ToString("G9", inv), s.ResourceMass.ToString("G9", inv) }));
                     }
                 }
                 _summary = $"Predicted (Pe {sp.SimOrbitPe / 1000:N0} km, entry {v0:N0} m/s at {fpa:N2}°, AoA {aoa:N0}° {(_attitude == 0 ? "shield first" : "nose first")}): {Describe(r.Outcome)} - " +

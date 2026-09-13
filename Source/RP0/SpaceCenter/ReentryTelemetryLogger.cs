@@ -212,7 +212,8 @@ namespace RP0
                 Append(sb, ptd != null ? ptd.convectionAreaMultiplier : double.NaN);
                 Append(sb, p.thermalConvectionFlux); Append(sb, p.thermalRadiationFlux); Append(sb, p.skinToInternalFlux);
                 Append(sb, p.skinThermalMass); Append(sb, p.thermalMass);
-                Append(sb, p.heatConvectiveConstant); Append(sb, p.emissiveConstant, last: true);
+                Append(sb, p.heatConvectiveConstant); Append(sb, p.emissiveConstant);
+                Append(sb, p.mass); Append(sb, p.resourceMass, last: true);
                 _partsWriter.WriteLine(sb.ToString());
             }
         }
@@ -303,7 +304,8 @@ namespace RP0
                 Vector3 velNorm = v.srf_velocity.normalized;
                 Vector3 liftDir = Vector3.ProjectOnPlane(-v.ReferenceTransform.forward, velNorm).normalized;
                 var sb = new StringBuilder(512);
-                sb.Append($"[ReentryWings] flight alt {v.altitude / 1000:N1} km, Mach {v.mach:N1}, q {v.dynamicPressurekPa:N3} kPa, AoA {FarValue(_farAoA, v):N1}:");
+                Vector3 comRel = v.CoM - v.rootPart.transform.position;
+                sb.Append($"[ReentryWings] flight alt {v.altitude / 1000:N1} km, Mach {v.mach:N1}, q {v.dynamicPressurekPa:N3} kPa, AoA {FarValue(_farAoA, v):N1}, mass {v.totalMass:N2} t, CoM from root {Vector3.Dot(comRel, v.ReferenceTransform.up):N2} m along nose, {Vector3.Dot(comRel, -v.ReferenceTransform.forward):N2} m toward roof:");
                 foreach (Part p in v.parts)
                     foreach (PartModule m in p.Modules)
                     {

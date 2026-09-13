@@ -444,7 +444,8 @@ namespace RP0.Reentry
                     TempMult = n.LastTempMult, CoeffMult = n.LastCoeffMult, AreaMult = n.LastAreaMult,
                     ConvectionFlux = n.LastConvectionFlux, RadiationFlux = n.LastRadiationFlux, SkinToInternalFlux = n.LastSkinToInternalFlux,
                     SkinThermalMass = n.SkinThermalMass, ThermalMass = n.ThermalMass,
-                    HeatConvectiveConstant = n.HeatConvectiveConstant, EmissiveConstant = n.EmissiveConstant
+                    HeatConvectiveConstant = n.HeatConvectiveConstant, EmissiveConstant = n.EmissiveConstant,
+                    Mass = n.Part != null ? n.Part.mass : 0.0, ResourceMass = n.Part != null ? n.Part.GetResourceMass() : 0.0
                 });
             }
         }

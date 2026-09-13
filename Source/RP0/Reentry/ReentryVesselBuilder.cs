@@ -127,8 +127,30 @@ namespace RP0.Reentry
             att.Nodes = nodes;
             att.MassT = Math.Max(massT, 0.001);
             att.ControlTorqueKNm = PitchControlTorque(parts, right);
+            Part rootPart = EditorLogic.RootPart;
+            if (rootPart != null)
+            {
+                Vector3 comRel = MassCentre(parts) - rootPart.transform.position;
+                RP0Debug.Log($"[ReentryAero] editor mass {att.MassT:N2} t, CoM from root {Vector3.Dot(comRel, forward):N2} m along nose, {Vector3.Dot(comRel, up):N2} m toward roof", true);
+            }
             att.Aero = aeroFactory.Create(body, nodes, velDir, liftAxis, forward, up, aoaDeg, shieldFirst, k, att.ControlTorqueKNm);
             return att;
+        }
+
+        /// <summary>Mass centre of the editor ship (dry plus resources), the way FAR takes it.</summary>
+        public static Vector3 MassCentre(List<Part> parts)
+        {
+            Vector3 com = Vector3.zero;
+            double mass = 0.0;
+            foreach (Part p in parts)
+            {
+                if (p == null || p.physicalSignificance == Part.PhysicalSignificance.NONE) continue;
+                if (p.FindModuleImplementing<LaunchClamp>() != null) continue;
+                double m = p.mass + p.GetResourceMass();
+                com += p.transform.TransformPoint(p.CoMOffset) * (float)m;
+                mass += m;
+            }
+            return mass > 0.0 ? com / (float)mass : com;
         }
 
         /// <summary>
@@ -139,16 +161,7 @@ namespace RP0.Reentry
         /// </summary>
         public static double PitchControlTorque(List<Part> parts, Vector3 pitchAxis)
         {
-            Vector3 com = Vector3.zero;
-            double mass = 0.0;
-            foreach (Part p in parts)
-            {
-                if (p == null || p.physicalSignificance == Part.PhysicalSignificance.NONE) continue;
-                double m = p.mass + p.GetResourceMass();
-                com += p.transform.TransformPoint(p.CoMOffset) * (float)m;
-                mass += m;
-            }
-            if (mass > 0.0) com /= (float)mass;
+            Vector3 com = MassCentre(parts);
 
             double wheels = 0.0, rcs = 0.0;
             foreach (Part p in parts)
