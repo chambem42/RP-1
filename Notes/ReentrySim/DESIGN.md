@@ -410,6 +410,26 @@ panel, AoA 42 held, nose first):
   `CalculateLocalDynPresAndAngularDrag`), which the editor sim does not; the FAR aero model
   applies it to the body share. This is a 2-3x drag boost above 95 km.
 
+Later the same day, with the KSPUITest harness flying the entry (SmartASS SVEL+ pitch offset =
+AoA, 4x physics warp, `Reentry_Predict` + `Reentry_Fly`, see `KSPUITest/Source/Tests.RP1`):
+
+- **The lift gap was the frame.** FAR's editor sim fixes nose = build axis and roof = toward the
+  facility's back wall; this craft was rotated about the build axis in the VAB, so the sim flowed
+  it through its yaw plane (per-wing log: main wings Cl 0, vertical fins Cl 0.6). The builder now
+  takes nose/roof from the command part's transform (flight's `ReferenceTransform`) and rolls
+  FAR's sim to match through its `phi` input. Lift, drag and the wing/body split then agree with
+  flight within 10 % from 100 km down.
+- **Convection is scaled by `thermalConvergenceFactor` (0.63) in flight** -
+  `thermalConvectionFlux = convectionFlux * cf` is what reaches the skin; radiation is not scaled.
+  Backed out of the flown tank's flux to 0.5 %. The solver applied the raw product. Fixed; the
+  fuselage tank's skin now tracks flight within 3 % (1955 vs 1888 K at 82 km).
+- **Remaining:** the interior still leads flight by ~3 km (predicted limit at ~80 km vs flown
+  77 km), which is the 293 K start against a cryogenic 99 K; the engines are still over-predicted
+  (elevons deflected to the stop in flight shade them); part-to-part conduction is absent.
+- **FAR quirk found on the way:** a vessel re-voxelized (staging) while RCS is slewing it gets
+  every part's projected area scaled by ~sqrt(2) for the rest of the flight - the voxel frame and
+  the meshes are sampled at different attitudes. Stage, let it settle, then manoeuvre.
+
 ---
 
 ## 8. UI
