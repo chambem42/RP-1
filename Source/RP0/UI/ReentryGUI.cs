@@ -171,6 +171,15 @@ namespace RP0
             }
         }
 
+        // Which tanks start cold, so the reader knows the interior margins assume a fuelled-on-the-pad start.
+        private static string CryoNote(ReentryAttitude att)
+        {
+            int n = 0; double coldest = double.MaxValue;
+            foreach (ReentryNode node in att.Nodes)
+                if (!double.IsNaN(node.InternalStartTemperature)) { ++n; coldest = Math.Min(coldest, node.InternalStartTemperature); }
+            return n > 0 ? $"; {n} cryogenic tank{(n == 1 ? "" : "s")} start at {coldest:N0} K" : "";
+        }
+
         // FAR voxelizes a craft a moment after it loads or changes; running before that would silently fall
         // back to drag cubes, which are not what the vessel flies with.
         private bool FarReadyOrExplain()
@@ -210,7 +219,7 @@ namespace RP0
                 var attitudes = new ReentryAttitude[aoaSteps];
                 for (int ai = 0; ai < aoaSteps; ++ai)
                     attitudes[ai] = ReentryVesselBuilder.Build(parts, body, k, _aoaList[ai], shieldFirst, factory);
-                _aeroSource = $"{factory.LastSource}, {(attitudes[0].VoxelAreas ? "FAR voxel" : "drag cube")} areas, {solver.ThermalModelDescription} heating" + (factory.TrimSummary.Length > 0 ? $"; {factory.TrimSummary}" : "");
+                _aeroSource = $"{factory.LastSource}, {(attitudes[0].VoxelAreas ? "FAR voxel" : "drag cube")} areas, {solver.ThermalModelDescription} heating" + (factory.TrimSummary.Length > 0 ? $"; {factory.TrimSummary}" : "") + CryoNote(attitudes[0]);
 
                 _results = new List<ReentryResult>(peSteps * aoaSteps);
                 var corridor = new Dictionary<double, KeyValuePair<double, double>>();
@@ -311,7 +320,7 @@ namespace RP0
                 ReentryAttitude att;
                 try { att = ReentryVesselBuilder.Build(parts, body, k, aoa, _attitude == 0, factory); }
                 finally { ReentryVesselBuilder.DebugOcclusionMach = -1.0; }
-                _aeroSource = $"{factory.LastSource}, {(att.VoxelAreas ? "FAR voxel" : "drag cube")} areas, {solver.ThermalModelDescription} heating" + (factory.TrimSummary.Length > 0 ? $"; {factory.TrimSummary}" : "");
+                _aeroSource = $"{factory.LastSource}, {(att.VoxelAreas ? "FAR voxel" : "drag cube")} areas, {solver.ThermalModelDescription} heating" + (factory.TrimSummary.Length > 0 ? $"; {factory.TrimSummary}" : "") + CryoNote(att);
                 if (!solver.TryEntryState(sp.SimOrbitPe, sp.SimReentryArrival, sp.SimOrbitAp, sp.SimEntrySpeed, sp.SimEntryAltitude,
                                           out double v0, out double fpa, out string err))
                 {

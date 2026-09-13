@@ -114,13 +114,19 @@ namespace RP0.Reentry
         public int MliLayers;
         public double PrefabSkinInternalConductionMult;
 
+        /// <summary>Interior temperature to start from instead of the vessel-wide one (NaN = none): RealFuels pins a
+        /// tank with cryogenic propellant to its coldest propellant's boiling point when it is fuelled.</summary>
+        public double InternalStartTemperature = double.NaN;
+
         public void Reset(double startTemp)
         {
             Temperature = SkinTemperature = SkinUnexposedTemperature = startTemp;
+            if (!double.IsNaN(InternalStartTemperature)) Temperature = InternalStartTemperature;
             SkinExposedAreaFrac = 1.0;
             Exposed = false;
             AblatorLeft = AblatorMax;
-            PeakSkin = PeakInternal = startTemp;
+            PeakSkin = startTemp;
+            PeakInternal = Temperature;
             HeatLoad = 0.0;
         }
 

@@ -59,6 +59,7 @@ namespace RP0.Reentry
                 ReadAblator(p, n);
                 n.IsEngine = p.FindModuleImplementing<ModuleEngines>() != null;
                 n.MliLayers = RealFuelsBridge.MliLayers(p);
+                n.InternalStartTemperature = RealFuelsBridge.CryoStartTemperature(p);
                 n.PrefabSkinInternalConductionMult = p.partInfo != null && p.partInfo.partPrefab != null
                     ? p.partInfo.partPrefab.skinInternalConductionMult : p.skinInternalConductionMult;
                 nodes.Add(n);

@@ -44,6 +44,46 @@ namespace RP0.Reentry
             }
         }
 
+        /// <summary>
+        /// The temperature RealFuels pins this tank's interior to when it is fuelled on the pad: the coldest
+        /// boiling point among its cryogenic tanks (ModuleFuelTanks.CalculateLowestTankTemperature over the
+        /// tanks with maxAmount > 0 and a vapour pressure or loss rate). NaN when the part has no such tank.
+        /// A KCT simulation spawns the vessel on the pad first, so its tanks arrive at the interface this cold.
+        /// </summary>
+        public static double CryoStartTemperature(Part part)
+        {
+            if (!_resolved) Resolve();
+            if (_tankType == null || part == null) return double.NaN;
+            const BindingFlags any = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+            foreach (PartModule m in part.Modules)
+            {
+                if (!_tankType.IsInstanceOfType(m)) continue;
+                try
+                {
+                    object tanks = m.GetType().GetField("tankList", any)?.GetValue(m);
+                    if (!(tanks is System.Collections.IEnumerable list)) return double.NaN;
+                    double lowest = double.NaN;
+                    foreach (object t in list)
+                    {
+                        Type tt = t.GetType();
+                        double maxAmount = Convert.ToDouble(tt.GetProperty("maxAmount", any)?.GetValue(t, null) ?? tt.GetField("maxAmount", any)?.GetValue(t) ?? 0.0);
+                        double vsp = Convert.ToDouble(tt.GetField("vsp", any)?.GetValue(t) ?? 0.0);
+                        double lossRate = Convert.ToDouble(tt.GetField("loss_rate", any)?.GetValue(t) ?? 0.0);
+                        if (maxAmount <= 0.0 || (vsp <= 0.0 && lossRate <= 0.0)) continue;
+                        double temp = Convert.ToDouble(tt.GetField("temperature", any)?.GetValue(t) ?? 300f);
+                        if (double.IsNaN(lowest) || temp < lowest) lowest = temp;
+                    }
+                    return lowest;
+                }
+                catch (Exception ex)
+                {
+                    RP0Debug.LogWarning($"RealFuels cryo temperature unavailable for {part.partInfo?.name}: {ex.Message}");
+                    return double.NaN;
+                }
+            }
+            return double.NaN;
+        }
+
         /// <summary>Number of MLI layers on this part's RealFuels tank, or 0 when it has none (or RF is absent).</summary>
         public static int MliLayers(Part part)
         {
