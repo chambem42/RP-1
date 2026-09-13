@@ -320,6 +320,7 @@ namespace RP0
         private static void DrawReentryConfig(SimulationParams simParams)
         {
             CelestialBody body = simParams.SimulationBody;
+            LoadReentryFields(simParams);
             if (string.IsNullOrEmpty(_sEntryAlt))
                 _sEntryAlt = (body.atmosphereDepth / 1000d).ToString("F0");
 
@@ -410,6 +411,24 @@ namespace RP0
             GUIStates.ShowSimConfig = true;
             _simulationConfigPosition.height = 1;
             _centralWindowPosition.height = 1;
+        }
+
+        // The SimulationParams values persist with the save, but these text boxes are session statics that
+        // start empty. Fill them from the saved reentry setup once per session, so a restart does not mean
+        // retyping the entry that was being tested. Blank boxes only: never overwrite what the player typed.
+        private static bool _reentryFieldsLoaded;
+
+        private static void LoadReentryFields(SimulationParams simParams)
+        {
+            if (_reentryFieldsLoaded) return;
+            _reentryFieldsLoaded = true;
+            // Only a setup that was actually used in Reentry mode is worth restoring.
+            if (simParams.SimEntryAltitude <= 0d) return;
+            if (string.IsNullOrEmpty(_sOrbitPe)) _sOrbitPe = (simParams.SimOrbitPe / 1000d).ToString("F0");
+            if (string.IsNullOrEmpty(_sOrbitAp) && simParams.SimOrbitAp > 0d) _sOrbitAp = (simParams.SimOrbitAp / 1000d).ToString("F0");
+            if (string.IsNullOrEmpty(_sEntrySpeed) && simParams.SimEntrySpeed > 0d) _sEntrySpeed = simParams.SimEntrySpeed.ToString("F0");
+            if (string.IsNullOrEmpty(_sEntryAlt)) _sEntryAlt = (simParams.SimEntryAltitude / 1000d).ToString("F0");
+            _sEntryLeadTime = simParams.SimEntryLeadTime.ToString("F0");
         }
 
         // Parses the reentry text fields. Returns false, with a reason, if any of them is unusable.
