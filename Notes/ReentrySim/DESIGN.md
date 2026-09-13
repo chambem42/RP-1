@@ -377,6 +377,39 @@ occlusion multipliers.
 5. Repeat once from LEO to confirm the Newtonian→Mach blend, and once with a non-reentry-rated
    part attached to exercise the occlusion multipliers.
 
+### 7.1 What the flights showed (Mk2 SSTO / Mk2 SSTO Big, RP-1 4.7 + RealHeat + FAR fork, Sept 2026)
+
+Compared by altitude, prediction vs the flown reentry at the same setup (Pe/Ap from the sim
+panel, AoA 42 held, nose first):
+
+- **Heating inputs match.** `externalTemperature` and `convectiveCoefficient` agree with the
+  flown values to 0.1 % at equal airspeed once RealHeat's curve replaces the stock shock
+  temperature and the airspeed is inertial minus ground rotation.
+- **Areas match once FAR's voxel areas replace the drag cubes** (tank: 182 vs 176 m2 exposed,
+  63.3 vs 62.6 radiative). Flight does not cap `exposedArea` at `radiativeArea`, so neither
+  does the builder.
+- **Engines run hot in the prediction** (RD-275 966 vs 715 K at 80 km): flight shows their
+  occlusion area multiplier falling from 0.17 to 0.02 as the elevons deflect to hold the AoA,
+  and the editor keeps control surfaces neutral. Not modelled.
+- **Tank interior.** With the prefab `heatConductivity` the interior tracked the skin; the
+  RealFuels MLI bridge gives a conductance that matches the flown one at like temperatures
+  (~3 kW/K at 1750 K mean, ~1.6 kW/K at 1400 K, the same T^4.67 law). The internal thermal
+  mass was double the flown value until the skin share was subtracted from the total
+  (`UpdateMassStats` does; the builder now does).
+- **The vehicle is lost to the fuselage tank's internal limit, not its skin.** The flown tank
+  reached `maxTemp` 1473 K at 77 km with its skin at 79 % of `skinMaxTemp`; its interior
+  started the entry at 100 K (cryogenic contents), which the editor cannot know - the
+  prediction starts every part at 293 K.
+- **Lift is the open item.** FAR's editor sim at Mach 25 gives Cl 1.5 at 42 deg; the flown FAR
+  readout is 0.70. Part of that is definition (FAR's flight Cl is the roof-axis component,
+  cos(AoA) short of the perpendicular lift), the rest is unexplained. The prediction spent
+  ~700 s longer between 96 and 98 km than the flight because of it, and soaked the tank
+  accordingly. The flight log now carries the total and wing-model force vectors resolved
+  in the editor sim's frame, and the prediction its own, to settle this directly.
+- Flight also scales each part's body drag by max(`pseudoReDragMult`, 1) (FAR's
+  `CalculateLocalDynPresAndAngularDrag`), which the editor sim does not; the FAR aero model
+  applies it to the body share. This is a 2-3x drag boost above 95 km.
+
 ---
 
 ## 8. UI
