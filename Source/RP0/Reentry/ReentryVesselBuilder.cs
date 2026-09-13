@@ -86,10 +86,13 @@ namespace RP0.Reentry
                     Part p = nodes[i].Part;
                     Vector3 dirLocal = -p.partTransform.InverseTransformDirection(velDir);
                     p.DragCubes.SetDrag(dirLocal, mach);
-                    // FAR: radiative area is the voxel total, exposed area the cube's (with voxel faces) capped at radiative.
+                    // FAR: radiative area is the voxel total; exposed area is the cube's (with voxel faces).
+                    // Not capped at the radiative area: flight telemetry shows the game running with the raw
+                    // cube value (a procedural tank logs 176 m2 exposed against 63 m2 radiative), so the cap
+                    // FAR's hook nominally applies is not in effect and matching it would under-heat.
                     double radArea = voxelTotal[i] > 0.0 ? voxelTotal[i] : p.DragCubes.PostOcclusionArea;
                     nodes[i].RadiativeArea[m] = radArea;
-                    nodes[i].ExposedArea[m] = voxelTotal[i] > 0.0 ? Math.Min(p.DragCubes.ExposedArea, radArea) : p.DragCubes.ExposedArea;
+                    nodes[i].ExposedArea[m] = p.DragCubes.ExposedArea;
                     if (m == 0) nodes[i].DragCoeff = p.DragCubes.DragCoeff;
                 }
                 ComputeOcclusion(occ, velDir, MachSamples[m]);
@@ -143,9 +146,14 @@ namespace RP0.Reentry
             return (axis * (float)Math.Cos(a) - up * (float)Math.Sin(a)).normalized;
         }
 
+        /// <summary>When set, ComputeOcclusion logs the occluder chain for engines at the given Mach sample.</summary>
+        public static double DebugOcclusionMach = -1.0;
+
         // FlightIntegrator.UpdateOcclusionConvection, run against the editor parts.
         private static void ComputeOcclusion(List<OcclusionData> occ, Vector3 velDir, double mach)
         {
+            bool debug = DebugOcclusionMach > 0.0 && Math.Abs(mach - DebugOcclusionMach) < 1e-6;
+            var log = debug ? new System.Text.StringBuilder() : null;
             int count = occ.Count;
             if (count == 0) return;
             if (mach <= 1.0)
@@ -166,23 +174,39 @@ namespace RP0.Reentry
             lead.ptd.convectionTempMultiplier = lead.ptd.convectionAreaMultiplier = lead.ptd.convectionCoeffMultiplier = 1.0;
             lead.convCone.Setup(lead, sqrtMach, machAngle, detachAngle);
             cones.Add(lead.convCone);
+            if (debug)
+                log.Append($"[ReentryOcclusion] Mach {mach:N0}, vel {velDir}, lead {PartName(lead)} maxDot {lead.maximumDot:N2} " +
+                           $"r {lead.projectedRadius:N2} fineness {lead.invFineness:N2} shockAngle {lead.convCone.shockAngle * 57.3:N1}deg " +
+                           $"areaMultOccl {lead.convCone.occludeConvectionAreaMult:N2} ext {lead.extents}");
 
             for (int i = count - 2; i >= 0; --i)
             {
                 OcclusionData o = occ[i];
                 o.ptd.convectionTempMultiplier = o.ptd.convectionAreaMultiplier = o.ptd.convectionCoeffMultiplier = 1.0;
+                bool track = debug && o.part.FindModuleImplementing<ModuleEngines>() != null;
+                if (track) log.Append($"\n  {PartName(o)}: maxDot {o.maximumDot:N2} centre {o.center} ext {o.extents} r {o.projectedRadius:N2}");
                 foreach (OcclusionCone cone in cones)
                 {
+                    double before = o.ptd.convectionAreaMultiplier;
                     double areaMult = o.GetShockStats(cone, ref o.ptd.convectionTempMultiplier, ref o.ptd.convectionCoeffMultiplier);
                     o.ptd.convectionAreaMultiplier *= areaMult;
+                    if (track && areaMult < 0.999)
+                        log.Append($"\n     in cone of {PartName(cone.part)} (occl {cone.occludeConvectionAreaMult:N2}, ext {cone.extents}, off {cone.offset}): x{areaMult:N3} -> {o.ptd.convectionAreaMultiplier:N3}");
                     if (o.ptd.convectionAreaMultiplier <= 0.001) { o.ptd.convectionAreaMultiplier = 0.0; break; }
                 }
+                if (track) log.Append($"\n     final temp {o.ptd.convectionTempMultiplier:N2} coeff {o.ptd.convectionCoeffMultiplier:N2} area {o.ptd.convectionAreaMultiplier:N3}");
                 if (o.ptd.convectionAreaMultiplier > 0.0)
                 {
                     o.convCone.Setup(o, sqrtMach, machAngle, detachAngle);
                     cones.Add(o.convCone);
                 }
             }
+            if (debug) RP0Debug.Log(log.ToString(), true);
+        }
+
+        private static string PartName(OcclusionData o)
+        {
+            return o?.part != null ? (o.part.partInfo != null ? o.part.partInfo.name : o.part.name) : "?";
         }
 
         private static void ReadAblator(Part p, ReentryNode n)

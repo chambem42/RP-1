@@ -281,7 +281,10 @@ namespace RP0
                 var solver = new ReentrySolver(body, k);
                 var factory = new DefaultAeroFactory();
                 if (FarEditorAero.Ready) FarEditorAero.LogAlphaSweep(body, 25.0, 80000.0);
-                ReentryAttitude att = ReentryVesselBuilder.Build(parts, body, k, aoa, _attitude == 0, factory);
+                ReentryVesselBuilder.DebugOcclusionMach = 25.0;   // log the engines' occluder chain for this one build
+                ReentryAttitude att;
+                try { att = ReentryVesselBuilder.Build(parts, body, k, aoa, _attitude == 0, factory); }
+                finally { ReentryVesselBuilder.DebugOcclusionMach = -1.0; }
                 _aeroSource = $"{factory.LastSource}, {(att.VoxelAreas ? "FAR voxel" : "drag cube")} areas, {solver.ThermalModelDescription} heating" + (factory.TrimSummary.Length > 0 ? $"; {factory.TrimSummary}" : "");
                 if (!solver.TryEntryState(sp.SimOrbitPe, sp.SimReentryArrival, sp.SimOrbitAp, sp.SimEntrySpeed, sp.SimEntryAltitude,
                                           out double v0, out double fpa, out string err))
