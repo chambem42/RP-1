@@ -17,7 +17,10 @@ namespace RP0.Reentry
 
         private readonly CelestialBody _body;
         private readonly ReentryConstants _k;
-        private readonly double _atmDepth, _radius, _mu;
+        private readonly double _atmDepth, _radius, _mu, _surfaceRotSpeed;
+
+        /// <summary>Seconds between trace samples when a trace list is supplied, matching the telemetry logger.</summary>
+        public const double TraceInterval = 0.5;
 
         public ReentrySolver(CelestialBody body, ReentryConstants k)
         {
@@ -26,10 +29,13 @@ namespace RP0.Reentry
             _atmDepth = body.atmosphereDepth;
             _radius = body.Radius;
             _mu = body.gravParameter;
+            // The game heats and drags with surface-relative speed. The trajectory is integrated inertially,
+            // so for a prograde equatorial entry the airspeed is the inertial speed less the ground's.
+            _surfaceRotSpeed = body.rotates && body.rotationPeriod != 0.0 ? 2.0 * Math.PI * body.Radius / Math.Abs(body.rotationPeriod) : 0.0;
         }
 
         public ReentryResult Simulate(ReentryAttitude att, double entryAlt, double entrySpeed, double entryFpaDeg,
-                                      bool liftDown, double startTemp = 293.15)
+                                      bool liftDown, double startTemp = 293.15, List<ReentryTraceSample> trace = null)
         {
             var res = new ReentryResult { AoADeg = att.AoADeg, LiftDown = liftDown, Outcome = ReentryOutcome.TimedOut };
             foreach (ReentryNode n in att.Nodes) n.Reset(startTemp);
@@ -41,6 +47,7 @@ namespace RP0.Reentry
             double liftSign = liftDown ? -1.0 : 1.0;
             bool armed = false;
             double peakFluxRate = 0.0;
+            double nextTrace = 0.0;
 
             while (t < MaxTime)
             {
@@ -49,15 +56,18 @@ namespace RP0.Reentry
                 if (alt <= 0.0) { res.Outcome = ReentryOutcome.Landed; break; }
                 if (alt < _atmDepth) armed = true;
 
+                // Airspeed: subtract the ground's rotation from the horizontal component.
+                double vAir = Math.Max(1.0, Math.Sqrt(Math.Pow(v * Math.Cos(gamma) - _surfaceRotSpeed * (_radius / r), 2) + Math.Pow(v * Math.Sin(gamma), 2)));
+
                 double pressure = _body.GetPressure(alt);
                 double ambientT = _body.GetTemperature(alt);
                 double density = pressure > 0.0 ? _body.GetDensity(pressure, ambientT) : 0.0;
                 double sos = pressure > 0.0 ? _body.GetSpeedOfSound(pressure, density) : 0.0;
-                double mach = sos > 0.0 ? v / sos : 0.0;
+                double mach = sos > 0.0 ? vAir / sos : 0.0;
                 double g = _mu / (r * r);
-                double q = 0.0005 * density * v * v;   // kPa, as stock
+                double q = 0.0005 * density * vAir * vAir;   // kPa, as stock
 
-                double pseudoRe = density * v;
+                double pseudoRe = density * vAir;
                 double pseudoReDragMult = density > 0.0 ? PhysicsGlobals.DragCurvePseudoReynolds.Evaluate((float)pseudoRe) : 1.0;
                 att.Aero.Forces(q, mach, pseudoReDragMult, out double dragKN, out double liftKN);
                 double aDrag = dragKN / att.MassT;
@@ -66,14 +76,21 @@ namespace RP0.Reentry
                 // Step size: fine while decelerating hard or heating hard, coarse in the thin stuff.
                 double dt = DtMax;
                 if (density > 1e-9) dt = Math.Min(dt, Math.Max(DtMin, 0.5 / Math.Max(aDrag / 9.80665, 0.05)));
-                if (v > 2000.0 && density > 1e-7) dt = Math.Min(dt, 0.25);
+                if (vAir > 2000.0 && density > 1e-7) dt = Math.Min(dt, 0.25);
+                if (trace != null) dt = Math.Min(dt, TraceInterval);
 
                 double gees = Math.Sqrt(aDrag * aDrag + aLift * aLift) / 9.80665;
                 if (gees > peakG) peakG = gees;
 
                 if (density > 0.0)
                 {
-                    StepThermal(att, dt, density, v, mach, ambientT, ref peakFluxRate, ref res, alt);
+                    StepThermal(att, dt, density, vAir, mach, ambientT, ref peakFluxRate, ref res, alt);
+                }
+
+                if (trace != null && t >= nextTrace && density > 0.0)
+                {
+                    nextTrace = t + TraceInterval;
+                    trace.Add(Sample(att, t, alt, vAir, mach, density, q, gees, ambientT));
                 }
 
                 double dv = (-aDrag - g * Math.Sin(gamma)) * dt;
@@ -181,6 +198,8 @@ namespace RP0.Reentry
             double machLerp = ConvectiveMachLerp(mach);
             double extT = Math.Max(ambientT, ShockTemperature(spd, machLerp));
             double convCoeff = ConvectiveCoefficient(density, spd, machLerp);
+            _lastExtT = extT;
+            _lastConvCoeff = convCoeff;
             double dtl = DensityThermalLerp(density, mach);
             double brt = ambientT + (_k.SpaceTemperature - ambientT) * dtl;
             double brtExposed = extT + (_k.SpaceTemperature - extT) * dtl;
@@ -270,7 +289,7 @@ namespace RP0.Reentry
                 double stable = dExpDT > 0.0 ? 0.5 * n.SkinThermalMass * frac / dExpDT : dt;
                 int sub = stable >= dt ? 1 : (int)Math.Min(64, Math.Ceiling(dt / Math.Max(stable, 1e-4)));
                 double h = dt / sub;
-                double convFlux = 0.0;
+                double convFlux = 0.0, lastRad = 0.0, lastSkinInt = 0.0;
 
                 for (int s = 0; s < sub; ++s)
                 {
@@ -305,7 +324,15 @@ namespace RP0.Reentry
                     if (n.SkinTemperature < _k.SpaceTemperature) n.SkinTemperature = _k.SpaceTemperature;
                     if (n.SkinUnexposedTemperature < _k.SpaceTemperature) n.SkinUnexposedTemperature = _k.SpaceTemperature;
                     if (convFlux > 0.0) n.HeatLoad += convFlux * h;
+                    lastRad = expRad + unexpRad;
+                    lastSkinInt = (skinInt + unexpSkinInt) * cf;
                 }
+
+                n.LastConvectionFlux = convFlux * cf;
+                n.LastRadiationFlux = lastRad;
+                n.LastSkinToInternalFlux = lastSkinInt;
+                n.LastExposedArea = expArea;
+                n.LastRadiativeArea = radArea;
 
                 if (n.SkinTemperature > n.PeakSkin) n.PeakSkin = n.SkinTemperature;
                 if (splitSkin && n.SkinUnexposedTemperature > n.PeakSkin) n.PeakSkin = n.SkinUnexposedTemperature;
@@ -319,6 +346,36 @@ namespace RP0.Reentry
                 res.PeakHeatingSpeed = spd;
                 res.PeakHeatingAltitude = alt;
             }
+        }
+
+        private double _lastExtT, _lastConvCoeff;
+
+        // A trace row for the part closest to its limit, mirroring ReentryTelemetryLogger.FindHottestPart.
+        private ReentryTraceSample Sample(ReentryAttitude att, double t, double alt, double vAir, double mach, double density,
+                                          double q, double gees, double ambientT)
+        {
+            ReentryNode hot = null;
+            double best = double.NegativeInfinity;
+            foreach (ReentryNode n in att.Nodes)
+            {
+                double frac = n.SkinMaxTemp > 0 ? n.SkinTemperature / n.SkinMaxTemp : 0.0;
+                if (n.MaxTemp > 0) frac = Math.Max(frac, n.Temperature / n.MaxTemp);
+                if (frac > best) { best = frac; hot = n; }
+            }
+            var s = new ReentryTraceSample
+            {
+                Time = t, Altitude = alt, Airspeed = vAir, Mach = mach, Density = density, DynPresKPa = q, GeeForce = gees,
+                AtmosphericTemperature = ambientT, ExternalTemperature = _lastExtT, ConvectiveCoefficient = _lastConvCoeff,
+                Part = hot != null ? (hot.Part != null && hot.Part.partInfo != null ? hot.Part.partInfo.name : hot.Name) : ""
+            };
+            if (hot != null)
+            {
+                s.SkinTemperature = hot.SkinTemperature; s.SkinMaxTemp = hot.SkinMaxTemp;
+                s.Temperature = hot.Temperature; s.MaxTemp = hot.MaxTemp;
+                s.ExposedArea = hot.LastExposedArea; s.RadiativeArea = hot.LastRadiativeArea;
+                s.ConvectionFlux = hot.LastConvectionFlux; s.RadiationFlux = hot.LastRadiationFlux; s.SkinToInternalFlux = hot.LastSkinToInternalFlux;
+            }
+            return s;
         }
 
         // SetSkinProperties: when the exposed fraction changes, move heat between the two skin nodes so

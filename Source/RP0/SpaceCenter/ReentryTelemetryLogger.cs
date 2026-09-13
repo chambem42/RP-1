@@ -23,7 +23,7 @@ namespace RP0
     public class ReentryTelemetryLogger : MonoBehaviour
     {
         private const double SampleInterval = 0.5d;
-        private const string HeaderLine =
+        public const string HeaderLine =
             "ut,missionTime,altitude,srfSpeed,mach,atmDensity,dynPreskPa,geeForce," +
             "atmosphericTemperature,externalTemperature,convectiveCoefficient," +
             "part,skinTemperature,skinMaxTemp,temperature,maxTemp," +
@@ -55,6 +55,8 @@ namespace RP0
             // Nothing interesting happens outside the atmosphere, and logging a coast to the
             // interface would bury the part of the trace that matters.
             if (v.atmDensity <= 0d) return;
+            // Not while still sitting on the pad waiting to be moved onto the entry trajectory.
+            if (!SpaceCenterManagement.Instance.SimulationParams.IsVesselMoved) return;
 
             double ut = Planetarium.GetUniversalTime();
             if (ut < _nextSampleUT) return;

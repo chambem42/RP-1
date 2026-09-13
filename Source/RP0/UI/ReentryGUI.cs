@@ -21,6 +21,7 @@ namespace RP0
         private string _sPeMin = "-50", _sPeMax = "80", _sPeSteps = "6";
         private string _sAoAMax = "30", _sAoASteps = "4";
         private string _sGLimit = "";
+        private string _sPredictAoA = "0";
         private int _attitude = -1;
         private bool _bothLiftDirections = true;
 
@@ -90,6 +91,13 @@ namespace RP0
             if (_best != null && GUILayout.Button(new GUIContent("Set up simulation", "Fill the simulation's Reentry mode with the best pair, to fly it for real."), GUILayout.Width(150)))
                 KCT_GUI.PrefillReentrySim(_best.PeAltitude / 1000.0, _arrival == 0 ? SimReentryArrival.Apoapsis : SimReentryArrival.EntrySpeed,
                                           ParseOr(_sAp, 250.0), ParseOr(_sEntrySpeed, 11000.0));
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button(new GUIContent("Predict sim setup", "Run one entry with the simulation config's Reentry-mode inputs and write the predicted trace as a CSV next to the flown telemetry logs, for comparison."), GUILayout.Width(150)))
+                PredictSimSetup(parts, body);
+            GUILayout.Label("at AoA", GUILayout.Width(50));
+            _sPredictAoA = GUILayout.TextField(_sPredictAoA, GUILayout.Width(40));
             GUILayout.EndHorizontal();
 
             if (!string.IsNullOrEmpty(_summary))
@@ -241,6 +249,69 @@ namespace RP0
             {
                 _summary = $"Analysis failed: {ex.Message}";
                 RP0Debug.LogError($"Reentry analysis failed: {ex}");
+            }
+            sw.Stop();
+            _elapsedMs = sw.Elapsed.TotalMilliseconds;
+            TopWindow.ResetSize();
+        }
+
+        // One entry with exactly the simulation's Reentry-mode inputs, written out row-for-row in the
+        // telemetry logger's format so a flown entry and its prediction can be diffed directly.
+        private void PredictSimSetup(List<Part> parts, CelestialBody body)
+        {
+            var sw = Stopwatch.StartNew();
+            _results = null; _best = null;
+            try
+            {
+                SimulationParams sp = SpaceCenterManagement.Instance?.SimulationParams;
+                if (sp == null || sp.SimOrbitMode != SimOrbitMode.Reentry)
+                {
+                    _summary = "Set the simulation config to Reentry mode first (its periapsis, arrival and entry interface are what gets predicted).";
+                    return;
+                }
+                double aoa = ParseOr(_sPredictAoA, 0.0);
+                var k = ReentryConstants.FromGame(body);
+                var solver = new ReentrySolver(body, k);
+                var factory = new DefaultAeroFactory();
+                ReentryAttitude att = ReentryVesselBuilder.Build(parts, body, k, aoa, _attitude == 0, factory);
+                _aeroSource = factory.LastSource;
+                if (!solver.TryEntryState(sp.SimOrbitPe, sp.SimReentryArrival, sp.SimOrbitAp, sp.SimEntrySpeed, sp.SimEntryAltitude,
+                                          out double v0, out double fpa, out string err))
+                {
+                    _summary = $"No entry possible: {err}";
+                    return;
+                }
+                var trace = new List<ReentryTraceSample>();
+                ReentryResult r = solver.Simulate(att, sp.SimEntryAltitude, v0, fpa, liftDown: false, trace: trace);
+
+                string dir = $"{KSPUtil.ApplicationRootPath}saves/{HighLogic.SaveFolder}/RP-1_ReentryLogs";
+                System.IO.Directory.CreateDirectory(dir);
+                string ship = EditorLogic.fetch.ship.shipName ?? "vessel";
+                string safe = string.Join("_", ship.Split(System.IO.Path.GetInvalidFileNameChars()));
+                string path = System.IO.Path.Combine(dir, $"predicted_{safe}_{DateTime.Now:yyyyMMdd_HHmmss}.csv");
+                var inv = System.Globalization.CultureInfo.InvariantCulture;
+                using (var w = new System.IO.StreamWriter(path, false))
+                {
+                    w.WriteLine(ReentryTelemetryLogger.HeaderLine);
+                    foreach (ReentryTraceSample s in trace)
+                    {
+                        w.WriteLine(string.Join(",", new[] {
+                            s.Time.ToString("G9", inv), s.Time.ToString("G9", inv), s.Altitude.ToString("G9", inv), s.Airspeed.ToString("G9", inv),
+                            s.Mach.ToString("G9", inv), s.Density.ToString("G9", inv), s.DynPresKPa.ToString("G9", inv), s.GeeForce.ToString("G9", inv),
+                            s.AtmosphericTemperature.ToString("G9", inv), s.ExternalTemperature.ToString("G9", inv), s.ConvectiveCoefficient.ToString("G9", inv),
+                            s.Part, s.SkinTemperature.ToString("G9", inv), s.SkinMaxTemp.ToString("G9", inv), s.Temperature.ToString("G9", inv), s.MaxTemp.ToString("G9", inv),
+                            s.ExposedArea.ToString("G9", inv), s.RadiativeArea.ToString("G9", inv), s.ConvectionFlux.ToString("G9", inv),
+                            s.RadiationFlux.ToString("G9", inv), s.SkinToInternalFlux.ToString("G9", inv) }));
+                    }
+                }
+                _summary = $"Predicted (Pe {sp.SimOrbitPe / 1000:N0} km, entry {v0:N0} m/s at {fpa:N2}°, AoA {aoa:N0}°): {Describe(r.Outcome)} - " +
+                           $"peak skin {r.PeakSkin:N0} K ({r.PeakSkinFrac * 100:N0}%) on {r.LimitingPart}, {r.PeakG:N1} g, {r.Duration:N0} s.\n" +
+                           $"Wrote {trace.Count} rows to {System.IO.Path.GetFileName(path)}";
+            }
+            catch (Exception ex)
+            {
+                _summary = $"Prediction failed: {ex.Message}";
+                RP0Debug.LogError($"Reentry prediction failed: {ex}");
             }
             sw.Stop();
             _elapsedMs = sw.Elapsed.TotalMilliseconds;

@@ -105,6 +105,8 @@ namespace RP0.Reentry
         public bool Exposed;
         public double AblatorLeft;
         public double PeakSkin, PeakInternal, HeatLoad;
+        // Last step's values, for the trace
+        public double LastConvectionFlux, LastRadiationFlux, LastSkinToInternalFlux, LastExposedArea, LastRadiativeArea;
 
         public void Reset(double startTemp)
         {
@@ -142,6 +144,16 @@ namespace RP0.Reentry
     }
 
     public enum ReentryOutcome { Landed, SkippedOut, SkinOverheat, InternalOverheat, AblatorExhausted, TimedOut }
+
+    /// <summary>One row of a predicted trace, in the same shape as ReentryTelemetryLogger's rows so the two can be diffed.</summary>
+    public struct ReentryTraceSample
+    {
+        public double Time, Altitude, Airspeed, Mach, Density, DynPresKPa, GeeForce;
+        public double AtmosphericTemperature, ExternalTemperature, ConvectiveCoefficient;
+        public string Part;
+        public double SkinTemperature, SkinMaxTemp, Temperature, MaxTemp;
+        public double ExposedArea, RadiativeArea, ConvectionFlux, RadiationFlux, SkinToInternalFlux;
+    }
 
     public class ReentryResult
     {
