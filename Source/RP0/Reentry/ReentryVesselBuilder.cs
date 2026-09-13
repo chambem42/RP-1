@@ -18,7 +18,7 @@ namespace RP0.Reentry
                                             bool shieldFirst, IReentryAeroFactory aeroFactory)
         {
             var att = new ReentryAttitude { AoADeg = aoaDeg, ShieldFirst = shieldFirst, MachSamples = MachSamples };
-            EditorFrame(out Vector3 forward, out Vector3 up, out Vector3 right);
+            CraftFrame(parts, out Vector3 forward, out Vector3 up, out Vector3 right);
             Vector3 velDir = VelocityDirection(forward, up, aoaDeg, shieldFirst);
             // Lift axis: the vessel's "up" made perpendicular to the velocity, so signed lift is well defined.
             Vector3 liftAxis = (up - Vector3.Dot(up, velDir) * velDir).normalized;
@@ -132,6 +132,12 @@ namespace RP0.Reentry
         // The editor's world frame for the vessel, matching FAR's InstantConditionSim conventions.
         public static void EditorFrame(out Vector3 forward, out Vector3 up, out Vector3 right)
         {
+            FacilityFrame(out forward, out up, out right);
+        }
+
+        /// <summary>The frame FAR's editor sim assumes: nose along the facility's build axis, roof toward its back wall.</summary>
+        public static void FacilityFrame(out Vector3 forward, out Vector3 up, out Vector3 right)
+        {
             if (EditorDriver.editorFacility == EditorFacility.VAB)
             {
                 forward = Vector3.up;
@@ -143,6 +149,28 @@ namespace RP0.Reentry
                 up = Vector3.up;
             }
             right = Vector3.right;
+        }
+
+        /// <summary>
+        /// The craft's own frame, from the part flight will control from: nose = its transform.up, roof =
+        /// -transform.forward (the ReferenceTransform convention). A craft rotated about its build axis in the
+        /// VAB has its roof anywhere in the plane across it, and the facility frame would then put the flow
+        /// through the wrong plane of the vehicle. Falls back to the facility frame without a command part.
+        /// </summary>
+        public static void CraftFrame(List<Part> parts, out Vector3 forward, out Vector3 up, out Vector3 right)
+        {
+            FacilityFrame(out forward, out up, out right);
+            Part cmd = null;
+            Part root = EditorLogic.RootPart;
+            if (root != null && root.FindModuleImplementing<ModuleCommand>() != null) cmd = root;
+            else foreach (Part p in parts) if (p != null && p.FindModuleImplementing<ModuleCommand>() != null) { cmd = p; break; }
+            if (cmd == null) return;
+            Vector3 nose = cmd.transform.up, roof = -cmd.transform.forward;
+            // Only trust it when the nose really is along the build axis; a sideways probe core is not a frame.
+            if (Vector3.Dot(nose, forward) < 0.9f) return;
+            forward = nose;
+            up = (roof - Vector3.Dot(roof, forward) * forward).normalized;
+            right = Vector3.Cross(forward, up).normalized;
         }
 
         /// <summary>Airflow direction (the vessel's velocity) for an angle of attack. Positive AoA pitches the nose above the velocity.</summary>

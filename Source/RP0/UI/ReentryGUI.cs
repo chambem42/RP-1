@@ -298,11 +298,14 @@ namespace RP0
                 var factory = new DefaultAeroFactory();
                 if (FarEditorAero.Ready)
                 {
-                    FarEditorAero.LogAlphaSweep(body, 25.0, 80000.0);
+                    ReentryVesselBuilder.CraftFrame(parts, out Vector3 cf, out Vector3 cu, out Vector3 cr);
+                    double phi = FarEditorAero.FacilityRoll(cu);
+                    RP0Debug.Log($"[ReentryAero] craft frame nose {cf}, roof {cu}; FAR roll {phi:N1} deg", true);
+                    FarEditorAero.LogAlphaSweep(body, 25.0, 80000.0, phi);
                     // per-wing numbers at the flown condition, untrimmed and at full pitch-up, for the flight log's [ReentryWings]
                     double alpha = _attitude == 0 ? 180.0 - aoa : aoa;
-                    FarEditorAero.LogWingBreakdown(body, 25.0, 80000.0, alpha, 0.0);
-                    FarEditorAero.LogWingBreakdown(body, 25.0, 80000.0, alpha, 1.0);
+                    FarEditorAero.LogWingBreakdown(body, 25.0, 80000.0, alpha, 0.0, phi);
+                    FarEditorAero.LogWingBreakdown(body, 25.0, 80000.0, alpha, 1.0, phi);
                 }
                 ReentryVesselBuilder.DebugOcclusionMach = 25.0;   // log the engines' occluder chain for this one build
                 ReentryAttitude att;

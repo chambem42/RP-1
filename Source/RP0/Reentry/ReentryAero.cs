@@ -91,7 +91,7 @@ namespace RP0.Reentry
         private static Type _editorGuiType, _inputType, _outputType, _simType;
         private static PropertyInfo _instanceProp, _readyProp, _aeroConditionProp;
         private static FieldInfo _instantSimField, _wingListField, _maxCrossSectionField, _bodyLengthField;
-        private static FieldInfo _inAlpha, _inMach, _inPitch, _outCl, _outCd, _outCm, _outWingCl, _outWingCd;
+        private static FieldInfo _inAlpha, _inPhi, _inMach, _inPitch, _outCl, _outCd, _outCm, _outWingCl, _outWingCd;
         private static MethodInfo _getClCdCm, _forFlightPoint;
         private static FieldInfo _wingAreaField;
 
@@ -212,6 +212,7 @@ namespace RP0.Reentry
                     _bodyLengthField = _simType.GetField("_bodyLength", any);
                     _getClCdCm = _simType.GetMethod("GetClCdCmSteady", any);
                     _inAlpha = _inputType.GetField("alpha", any);
+                    _inPhi = _inputType.GetField("phi", any);
                     _inMach = _inputType.GetField("machNumber", any);
                     _outCl = _outputType.GetField("Cl", any);
                     _outCd = _outputType.GetField("Cd", any);
@@ -236,6 +237,19 @@ namespace RP0.Reentry
                 RP0Debug.LogWarning($"FAR editor aero unavailable: {ex.Message}");
                 _available = false;
             }
+        }
+
+        /// <summary>
+        /// FAR's editor sim fixes its frame from the facility (nose along the build axis, "up" toward the back
+        /// wall) and takes the flow in the plane of that up. Its roll input phi turns that plane: with
+        /// liftDown = -forward*sin(a) + right*sin(phi)*cos(a) - up*cos(phi)*cos(a), phi puts the lift axis on
+        /// up*cos(phi) - right*sin(phi). Solve that for the craft's actual roof, so a craft rotated about its
+        /// build axis in the VAB is flown through its pitch plane and not across it.
+        /// </summary>
+        public static double FacilityRoll(Vector3 craftUp)
+        {
+            ReentryVesselBuilder.FacilityFrame(out _, out Vector3 up, out Vector3 right);
+            return Math.Atan2(-Vector3.Dot(craftUp, right), Vector3.Dot(craftUp, up)) * 180.0 / Math.PI;
         }
 
         private static object InstantSim()
@@ -271,12 +285,14 @@ namespace RP0.Reentry
             // FAR's alpha is measured from +forward; a shield-first entry is alpha = 180 - AoA.
             double alpha = shieldFirst ? 180.0 - aoaDeg : aoaDeg;
             double a0 = alpha * Math.PI / 180.0;
-            // FAR reports Cl along -liftDown, liftDown = -forward*sin(a) - up*cos(a); express that on our lift axis.
+            // FAR reports Cl along -liftDown = forward*sin(a) + up*cos(a) in its own frame; with the roll input
+            // below, that "up" is the craft's roof, so the lift lands on our lift axis.
             Vector3 liftDir = (forward * (float)Math.Sin(a0) + up * (float)Math.Cos(a0)).normalized;
             _liftSign = Vector3.Dot(liftDir, liftAxis);
 
             object input = Activator.CreateInstance(_inputType);
             _inAlpha.SetValue(input, alpha);
+            _inPhi?.SetValue(input, FacilityRoll(up));
             double lengthScale = _flightConditions ? Math.Max(1.0, Convert.ToDouble(_bodyLengthField.GetValue(sim))) : 1.0;
             try
             {
@@ -322,16 +338,17 @@ namespace RP0.Reentry
         /// build supports it) at a flight point, so a sign or magnitude disagreement with flight can be
         /// pinned to FAR's editor path rather than to this adapter.
         /// </summary>
-        public static void LogAlphaSweep(CelestialBody body, double mach, double altitude)
+        public static void LogAlphaSweep(CelestialBody body, double mach, double altitude, double phi)
         {
             if (!Ready) { RP0Debug.Log("[ReentryAero] FAR editor sim not ready for the alpha sweep", true); return; }
             object sim = InstantSim();
             object input = Activator.CreateInstance(_inputType);
             _inMach.SetValue(input, mach);
+            _inPhi?.SetValue(input, phi);
             bool flight = SupportsFlightConditions && body != null;
             double lengthScale = flight ? Math.Max(1.0, Convert.ToDouble(_bodyLengthField.GetValue(sim))) : 1.0;
             var sb = new System.Text.StringBuilder();
-            sb.Append($"[ReentryAero] FAR alpha sweep at Mach {mach:N0}, facility {EditorDriver.editorFacility}:");
+            sb.Append($"[ReentryAero] FAR alpha sweep at Mach {mach:N0}, facility {EditorDriver.editorFacility}, roll {phi:N0}:");
             try
             {
                 for (int pass = 0; pass < (flight ? 2 : 1); ++pass)
@@ -365,12 +382,13 @@ namespace RP0.Reentry
         /// log each wing part's area, MAC, Cl, Cd and stall fraction, in the same shape as the flight logger's
         /// [ReentryWings] lines, so the two wing models can be compared part by part.
         /// </summary>
-        public static void LogWingBreakdown(CelestialBody body, double mach, double altitude, double alpha, double pitch)
+        public static void LogWingBreakdown(CelestialBody body, double mach, double altitude, double alpha, double pitch, double phi)
         {
             if (!Ready) return;
             object sim = InstantSim();
             object input = Activator.CreateInstance(_inputType);
             _inMach.SetValue(input, mach);
+            _inPhi?.SetValue(input, phi);
             _inAlpha.SetValue(input, alpha);
             _inPitch?.SetValue(input, pitch);
             bool flight = SupportsFlightConditions && body != null;
