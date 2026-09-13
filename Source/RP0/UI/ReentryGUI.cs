@@ -273,6 +273,7 @@ namespace RP0
                 var k = ReentryConstants.FromGame(body);
                 var solver = new ReentrySolver(body, k);
                 var factory = new DefaultAeroFactory();
+                if (FarEditorAero.Ready) FarEditorAero.LogAlphaSweep(body, 25.0, 80000.0);
                 ReentryAttitude att = ReentryVesselBuilder.Build(parts, body, k, aoa, _attitude == 0, factory);
                 _aeroSource = $"{factory.LastSource}, {solver.ThermalModelDescription} heating";
                 if (!solver.TryEntryState(sp.SimOrbitPe, sp.SimReentryArrival, sp.SimOrbitAp, sp.SimEntrySpeed, sp.SimEntryAltitude,

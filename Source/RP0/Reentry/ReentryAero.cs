@@ -253,6 +253,49 @@ namespace RP0.Reentry
 
         public double ReferenceArea => _refArea;
 
+        /// <summary>
+        /// Diagnostic: log FAR's raw Cl/Cd over an alpha sweep at one Mach, in continuum flow and (when the
+        /// build supports it) at a flight point, so a sign or magnitude disagreement with flight can be
+        /// pinned to FAR's editor path rather than to this adapter.
+        /// </summary>
+        public static void LogAlphaSweep(CelestialBody body, double mach, double altitude)
+        {
+            if (!Ready) { RP0Debug.Log("[ReentryAero] FAR editor sim not ready for the alpha sweep", true); return; }
+            object sim = InstantSim();
+            object input = Activator.CreateInstance(_inputType);
+            _inMach.SetValue(input, mach);
+            bool flight = SupportsFlightConditions && body != null;
+            double lengthScale = flight ? Math.Max(1.0, Convert.ToDouble(_bodyLengthField.GetValue(sim))) : 1.0;
+            var sb = new System.Text.StringBuilder();
+            sb.Append($"[ReentryAero] FAR alpha sweep at Mach {mach:N0}, facility {EditorDriver.editorFacility}:");
+            try
+            {
+                for (int pass = 0; pass < (flight ? 2 : 1); ++pass)
+                {
+                    if (flight)
+                        _aeroConditionProp.SetValue(sim, pass == 1 ? _forFlightPoint.Invoke(null, new object[] { body, altitude, mach, lengthScale }) : null, null);
+                    sb.Append(pass == 1 ? $"\n  at {altitude / 1000:N0} km flight conditions:" : "\n  continuum (stock path):");
+                    // Fork-only split of the total into wing and body contributions, when the output carries it.
+                    FieldInfo wingCl = _outputType.GetField("WingCl"), bodyCl = _outputType.GetField("BodyCl");
+                    foreach (double alpha in new[] { -20.0, -10.0, 0.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0 })
+                    {
+                        _inAlpha.SetValue(input, alpha);
+                        object[] args = { input, null, true, true };
+                        _getClCdCm.Invoke(sim, args);
+                        sb.Append($" a={alpha:N0}: Cl={Convert.ToDouble(_outCl.GetValue(args[1])):N3} Cd={Convert.ToDouble(_outCd.GetValue(args[1])):N3}");
+                        if (wingCl != null && bodyCl != null)
+                            sb.Append($" (wing {Convert.ToDouble(wingCl.GetValue(args[1])):N3}, body {Convert.ToDouble(bodyCl.GetValue(args[1])):N3})");
+                        sb.Append(';');
+                    }
+                }
+            }
+            finally
+            {
+                if (flight) _aeroConditionProp.SetValue(sim, null, null);
+            }
+            RP0Debug.Log(sb.ToString(), true);
+        }
+
         public void Forces(double dynPresKPa, double mach, double altitude, double pseudoReDragMult, out double dragKN, out double liftKN)
         {
             Index(_mach, mach, out int mi, out double mf);
