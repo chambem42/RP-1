@@ -388,7 +388,7 @@ namespace RP0.Reentry
                 Time = t, Altitude = alt, Airspeed = vAir, Mach = mach, Density = density, DynPresKPa = q, GeeForce = gees,
                 AtmosphericTemperature = ambientT, ExternalTemperature = _lastExtT, ConvectiveCoefficient = _lastConvCoeff,
                 Part = hot != null ? (hot.Part != null && hot.Part.partInfo != null ? hot.Part.partInfo.name : hot.Name) : "",
-                AoA = att.AoADeg, RefArea = att.Aero.ReferenceArea, BackgroundTempExposed = _lastBrtExposed,
+                AoA = att.AoADeg, RefArea = att.Aero.ReferenceArea, BackgroundTempExposed = _lastBrtExposed, TrimPitch = att.Aero.LastTrimPitch,
                 Cl = q > 0.0 ? liftKN / (q * att.Aero.ReferenceArea) : 0.0,
                 Cd = q > 0.0 ? dragKN / (q * att.Aero.ReferenceArea) : 0.0
             };

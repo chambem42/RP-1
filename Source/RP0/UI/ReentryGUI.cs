@@ -44,6 +44,13 @@ namespace RP0
             }
             CelestialBody body = Planetarium.fetch.Home;
             if (_attitude < 0) _attitude = EditorDriver.editorFacility == EditorFacility.VAB ? 0 : 1;
+            if (EditorLogic.fetch.ship.shipFacility != EditorDriver.editorFacility)
+            {
+                // FAR's editor sim and this analysis both take "forward" from the facility, so a craft
+                // opened in the other editor has its nose on the wrong axis and every angle is off.
+                GUILayout.Label($"This is a {EditorLogic.fetch.ship.shipFacility} craft opened in the {EditorDriver.editorFacility}; open it in the {EditorLogic.fetch.ship.shipFacility} to analyse it.", BoldLabel);
+                return;
+            }
 
             GUILayout.Label($"Return to {body.bodyName}", BoldLabel);
 
@@ -189,7 +196,7 @@ namespace RP0
                 var attitudes = new ReentryAttitude[aoaSteps];
                 for (int ai = 0; ai < aoaSteps; ++ai)
                     attitudes[ai] = ReentryVesselBuilder.Build(parts, body, k, _aoaList[ai], shieldFirst, factory);
-                _aeroSource = $"{factory.LastSource}, {solver.ThermalModelDescription} heating";
+                _aeroSource = $"{factory.LastSource}, {solver.ThermalModelDescription} heating" + (factory.TrimSummary.Length > 0 ? $"; {factory.TrimSummary}" : "");
 
                 _results = new List<ReentryResult>(peSteps * aoaSteps);
                 var corridor = new Dictionary<double, KeyValuePair<double, double>>();
@@ -275,7 +282,7 @@ namespace RP0
                 var factory = new DefaultAeroFactory();
                 if (FarEditorAero.Ready) FarEditorAero.LogAlphaSweep(body, 25.0, 80000.0);
                 ReentryAttitude att = ReentryVesselBuilder.Build(parts, body, k, aoa, _attitude == 0, factory);
-                _aeroSource = $"{factory.LastSource}, {solver.ThermalModelDescription} heating";
+                _aeroSource = $"{factory.LastSource}, {solver.ThermalModelDescription} heating" + (factory.TrimSummary.Length > 0 ? $"; {factory.TrimSummary}" : "");
                 if (!solver.TryEntryState(sp.SimOrbitPe, sp.SimReentryArrival, sp.SimOrbitAp, sp.SimEntrySpeed, sp.SimEntryAltitude,
                                           out double v0, out double fpa, out string err))
                 {
@@ -304,7 +311,7 @@ namespace RP0
                             s.ExposedArea.ToString("G9", inv), s.RadiativeArea.ToString("G9", inv), s.ConvectionFlux.ToString("G9", inv),
                             s.RadiationFlux.ToString("G9", inv), s.SkinToInternalFlux.ToString("G9", inv),
                             s.AoA.ToString("G9", inv), s.Cl.ToString("G9", inv), s.Cd.ToString("G9", inv), s.RefArea.ToString("G9", inv),
-                            s.BackgroundTempExposed.ToString("G9", inv) }));
+                            s.BackgroundTempExposed.ToString("G9", inv), s.TrimPitch.ToString("G9", inv) }));
                     }
                 }
                 _summary = $"Predicted (Pe {sp.SimOrbitPe / 1000:N0} km, entry {v0:N0} m/s at {fpa:N2}°, AoA {aoa:N0}°): {Describe(r.Outcome)} - " +

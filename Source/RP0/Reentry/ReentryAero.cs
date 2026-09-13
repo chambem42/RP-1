@@ -17,6 +17,7 @@ namespace RP0.Reentry
 
         public string Description => "stock drag cubes";
         public double ReferenceArea => 1.0;
+        public double LastTrimPitch => double.NaN;
 
         public DragCubeAero(List<ReentryNode> nodes, Vector3 velDir, Vector3 liftAxis, ReentryConstants k)
         {
@@ -88,7 +89,7 @@ namespace RP0.Reentry
         private static Type _editorGuiType, _inputType, _outputType, _simType;
         private static PropertyInfo _instanceProp, _readyProp, _aeroConditionProp;
         private static FieldInfo _instantSimField, _wingListField, _maxCrossSectionField, _bodyLengthField;
-        private static FieldInfo _inAlpha, _inMach, _outCl, _outCd;
+        private static FieldInfo _inAlpha, _inMach, _inPitch, _outCl, _outCd, _outCm;
         private static MethodInfo _getClCdCm, _forFlightPoint;
         private static FieldInfo _wingAreaField;
 
@@ -96,12 +97,60 @@ namespace RP0.Reentry
         public static readonly double[] AltitudeSamples = { 20000, 40000, 55000, 65000, 75000, 85000, 95000, 110000, 140000 };
 
         private readonly double[] _mach, _alt;
-        private readonly double[,] _cl, _cd;     // [alt, mach]; a single altitude row when flight conditions are unsupported
+        private readonly double[,] _cl, _cd, _trimPitch;   // [alt, mach]; a single altitude row when flight conditions are unsupported
         private readonly double _refArea;
         private readonly double _liftSign;
         private readonly bool _flightConditions;
+        private int _untrimmable;
+        private double _maxTrimPitch;
 
-        public string Description => _flightConditions ? "FAR editor aero at flight Re/Kn" : "FAR editor aero (continuum)";
+        public string Description => (_flightConditions ? "FAR editor aero at flight Re/Kn" : "FAR editor aero (continuum)") + ", trimmed";
+
+        /// <summary>Largest pitch control input (0..1 of full deflection) the trim needed anywhere on the grid.</summary>
+        public double MaxTrimPitch => _maxTrimPitch;
+        /// <summary>Number of grid points where full control deflection could not zero the pitching moment.</summary>
+        public int UntrimmableSamples => _untrimmable;
+        public int TotalSamples => _alt.Length * _mach.Length;
+        public double LastTrimPitch { get; private set; }
+
+        // Trim: find the pitch control input that zeroes Cm at this alpha/Mach/altitude and take Cl/Cd
+        // there. Holding an angle of attack costs control-surface deflection, and on a lifting body
+        // the deflected surfaces take a large bite out of the lift the untrimmed sim reports. Cm is
+        // close to linear in the input, so two secant steps are enough; if the root falls outside
+        // full deflection the point is flagged and the nearest endpoint is used.
+        private void SampleTrimmed(object sim, object input, bool clear, out double cl, out double cd, out double trim, out bool trimmed)
+        {
+            double p0 = 0.0, c0 = EvalCm(sim, input, p0, clear, out cl, out cd);
+            double cmUntrimmed = Math.Abs(c0);
+            trim = 0.0; trimmed = true;
+            if (_inPitch == null || _outCm == null || cmUntrimmed < 1e-6) return;
+
+            double p1 = c0 > 0.0 ? -0.5 : 0.5;
+            double c1 = EvalCm(sim, input, p1, false, out double cl1, out double cd1);
+            for (int i = 0; i < 3; ++i)
+            {
+                if (Math.Abs(c1 - c0) < 1e-9) break;
+                double p2 = p1 - c1 * (p1 - p0) / (c1 - c0);
+                if (p2 > 1.0) p2 = 1.0; else if (p2 < -1.0) p2 = -1.0;
+                double c2 = EvalCm(sim, input, p2, false, out cl1, out cd1);
+                p0 = p1; c0 = c1; p1 = p2; c1 = c2;
+                if (Math.Abs(c1) < 1e-4 || (Math.Abs(p1) >= 1.0 && i > 0)) break;
+            }
+            trim = p1; cl = cl1; cd = cd1;
+            // Untrimmable when the best we could do sits at full deflection with the moment still well off zero.
+            trimmed = !(Math.Abs(p1) >= 1.0 && Math.Abs(c1) > 0.05 * Math.Max(cmUntrimmed, 1e-3));
+            _inPitch.SetValue(input, 0.0);
+        }
+
+        private double EvalCm(object sim, object input, double pitch, bool clear, out double cl, out double cd)
+        {
+            _inPitch?.SetValue(input, pitch);
+            object[] args = { input, null, clear, false };
+            _getClCdCm.Invoke(sim, args);
+            cl = Convert.ToDouble(_outCl.GetValue(args[1]));
+            cd = Convert.ToDouble(_outCd.GetValue(args[1]));
+            return _outCm != null ? Convert.ToDouble(_outCm.GetValue(args[1])) : 0.0;
+        }
 
         public static bool Available
         {
@@ -158,6 +207,8 @@ namespace RP0.Reentry
                     _inMach = _inputType.GetField("machNumber", any);
                     _outCl = _outputType.GetField("Cl", any);
                     _outCd = _outputType.GetField("Cd", any);
+                    _inPitch = _inputType.GetField("pitchValue", any);
+                    _outCm = _outputType.GetField("Cm", any);
                     if (wingType != null) _wingAreaField = wingType.GetField("S", any);
                     // Optional, fork-only: per-sample flight conditions.
                     _aeroConditionProp = _simType.GetProperty("AeroCondition", any);
@@ -203,6 +254,7 @@ namespace RP0.Reentry
             }
             _cl = new double[_alt.Length, _mach.Length];
             _cd = new double[_alt.Length, _mach.Length];
+            _trimPitch = new double[_alt.Length, _mach.Length];
 
             // FAR's alpha is measured from +forward; a shield-first entry is alpha = 180 - AoA.
             double alpha = shieldFirst ? 180.0 - aoaDeg : aoaDeg;
@@ -227,12 +279,10 @@ namespace RP0.Reentry
                             _aeroConditionProp.SetValue(sim, cond, null);
                         }
                         _inMach.SetValue(input, _mach[m]);
-                        object[] args = { input, null, first, false };
+                        SampleTrimmed(sim, input, first, out _cl[ai, m], out _cd[ai, m], out _trimPitch[ai, m], out bool trimmed);
                         first = false;
-                        _getClCdCm.Invoke(sim, args);
-                        object output = args[1];
-                        _cl[ai, m] = Convert.ToDouble(_outCl.GetValue(output));
-                        _cd[ai, m] = Convert.ToDouble(_outCd.GetValue(output));
+                        if (!trimmed) _untrimmable++;
+                        if (Math.Abs(_trimPitch[ai, m]) > _maxTrimPitch) _maxTrimPitch = Math.Abs(_trimPitch[ai, m]);
                     }
                 }
             }
@@ -302,6 +352,7 @@ namespace RP0.Reentry
             Index(_alt, altitude, out int ai, out double af);
             double cl = Bilinear(_cl, ai, af, mi, mf);
             double cd = Bilinear(_cd, ai, af, mi, mf);
+            LastTrimPitch = Bilinear(_trimPitch, ai, af, mi, mf);
             dragKN = dynPresKPa * cd * _refArea;
             liftKN = dynPresKPa * cl * _refArea * _liftSign;
         }
@@ -330,6 +381,14 @@ namespace RP0.Reentry
     {
         public bool PreferFar = true;
         public string LastSource = "";
+        // Trim bookkeeping across every attitude built through this factory.
+        public double MaxTrimPitch;
+        public int Untrimmable, TotalSamples;
+
+        /// <summary>One line on what holding the analysed attitudes costs in pitch control.</summary>
+        public string TrimSummary => TotalSamples == 0 ? ""
+            : Untrimmable > 0 ? $"cannot trim at {Untrimmable} of {TotalSamples} flight points (full elevator insufficient)"
+            : $"trim needs up to {MaxTrimPitch:P0} elevator";
 
         public IReentryAero Create(CelestialBody body, List<ReentryNode> nodes, Vector3 velDir, Vector3 liftAxis, Vector3 forward, Vector3 up,
                                    double aoaDeg, bool shieldFirst, ReentryConstants k)
@@ -339,6 +398,9 @@ namespace RP0.Reentry
                 try
                 {
                     var far = new FarEditorAero(body, aoaDeg, shieldFirst, forward, up, liftAxis);
+                    if (far.MaxTrimPitch > MaxTrimPitch) MaxTrimPitch = far.MaxTrimPitch;
+                    Untrimmable += far.UntrimmableSamples;
+                    TotalSamples += far.TotalSamples;
                     LastSource = far.Description;
                     return far;
                 }

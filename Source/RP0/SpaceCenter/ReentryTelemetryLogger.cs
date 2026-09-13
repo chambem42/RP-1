@@ -28,7 +28,7 @@ namespace RP0
             "atmosphericTemperature,externalTemperature,convectiveCoefficient," +
             "part,skinTemperature,skinMaxTemp,temperature,maxTemp," +
             "exposedArea,radiativeArea,convectionFlux,radiationFlux,skinToInternalFlux," +
-            "aoa,cl,cd,refArea,brtExposed";
+            "aoa,cl,cd,refArea,brtExposed,trimPitch";
 
         // FAR's flight readouts, by reflection (FARAPI is public static). Optional: blank columns without FAR.
         private static bool _farResolved;
@@ -111,7 +111,8 @@ namespace RP0
             Append(sb, FarValue(_farCl, v));
             Append(sb, FarValue(_farCd, v));
             Append(sb, FarValue(_farRefArea, v));
-            Append(sb, brtExposed, last: true);
+            Append(sb, brtExposed);
+            Append(sb, v.ctrlState != null ? v.ctrlState.pitch : double.NaN, last: true);   // pitch input incl. SAS, for trim comparison
 
             try
             {
