@@ -188,6 +188,43 @@ namespace RP0
             return cryo + $"; {att.ControlTorqueKNm:N0} kN m of wheel/RCS pitch torque";
         }
 
+        // Which parts went over a limit, and which came close, by part type: the tint cannot show a hidden
+        // engine or tell a 96 % tank from a lost one, and the loss altitude is what a pilot wants to know.
+        private static string PartLimitsReport(ReentryAttitude att)
+        {
+            var groups = new Dictionary<string, List<ReentryNode>>();
+            foreach (ReentryNode n in att.Nodes)
+            {
+                if (n.WorstFrac < 0.9) continue;
+                if (!groups.TryGetValue(n.Name, out List<ReentryNode> list)) groups[n.Name] = list = new List<ReentryNode>();
+                list.Add(n);
+            }
+            if (groups.Count == 0) return "\nNo part came within 10% of a limit.";
+            var lines = new List<KeyValuePair<double, string>>();
+            foreach (KeyValuePair<string, List<ReentryNode>> g in groups)
+            {
+                double worst = 0.0, skin = 0.0, interior = 0.0, lossAlt = double.MaxValue;
+                int lost = 0;
+                foreach (ReentryNode n in g.Value)
+                {
+                    worst = Math.Max(worst, n.WorstFrac);
+                    skin = Math.Max(skin, n.SkinFrac);
+                    interior = Math.Max(interior, n.InternalFrac);
+                    if (!double.IsNaN(n.LimitAltitude)) { ++lost; lossAlt = Math.Min(lossAlt, n.LimitAltitude); }
+                }
+                string where = skin >= interior ? $"skin {skin * 100:N0}%" : $"interior {interior * 100:N0}%";
+                string count = g.Value.Count > 1 ? $" x{g.Value.Count}" : "";
+                string text = lost > 0
+                    ? $"  LOST: {g.Key}{count} - {where}{(lost < g.Value.Count ? $" ({lost} of {g.Value.Count})" : "")}, first at {lossAlt / 1000:N0} km"
+                    : $"  near: {g.Key}{count} - {where}";
+                lines.Add(new KeyValuePair<double, string>(worst, text));
+            }
+            lines.Sort((a, b) => b.Key.CompareTo(a.Key));
+            var sb = new StringBuilder("\nParts over or within 10% of a limit (skin or interior, whichever is worse):");
+            foreach (KeyValuePair<double, string> l in lines) sb.Append('\n').Append(l.Value);
+            return sb.ToString();
+        }
+
         // The propellant-remaining box, applied to the editor ship so FAR's CoM and this analysis agree.
         private void ApplyPropellantLoad(List<Part> parts)
         {
@@ -394,7 +431,8 @@ namespace RP0
                 _summary = $"Predicted (Pe {sp.SimOrbitPe / 1000:N0} km, entry {v0:N0} m/s at {fpa:N2}°, AoA {aoa:N0}° {(_attitude == 0 ? "shield first" : "nose first")}): {Describe(r.Outcome)} - " +
                            $"peak skin {r.PeakSkin:N0} K ({r.PeakSkinFrac * 100:N0}%) on {r.LimitingPart}, {r.PeakG:N1} g, {r.Duration:N0} s.\n" +
                            $"Wrote {trace.Count} rows to {System.IO.Path.GetFileName(path)} (+ .parts.csv)" + (factory.TrimSummary.Length > 0 ? $"\n{factory.TrimSummary}" : "") +
-                           "\nParts carry the flight thermal highlight at their peak (red from 40% of the limit, orange at it); parts that went over it are red ghosts.";
+                           "\nParts carry the flight thermal highlight at their peak (red from 40% of the limit, orange at it); parts that went over it are red ghosts." +
+                           PartLimitsReport(att);
                 ReentryHeatHighlight.Apply(att);
             }
             catch (Exception ex)

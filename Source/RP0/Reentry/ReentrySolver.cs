@@ -375,6 +375,8 @@ namespace RP0.Reentry
                 if (n.SkinTemperature > n.PeakSkin) n.PeakSkin = n.SkinTemperature;
                 if (splitSkin && n.SkinUnexposedTemperature > n.PeakSkin) n.PeakSkin = n.SkinUnexposedTemperature;
                 if (n.Temperature > n.PeakInternal) n.PeakInternal = n.Temperature;
+                if (double.IsNaN(n.LimitAltitude) && ((n.SkinMaxTemp > 0.0 && n.PeakSkin >= n.SkinMaxTemp) || (n.MaxTemp > 0.0 && n.PeakInternal >= n.MaxTemp)))
+                    n.LimitAltitude = alt;
                 if (convFlux > 0.0) totalConv += convFlux;
             }
 
