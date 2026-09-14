@@ -110,7 +110,8 @@ namespace RP0.Reentry
                 downrange += dtheta * _radius;
                 t += dt;
 
-                if (v < 250.0 && alt < 30000.0) { res.Outcome = ReentryOutcome.Landed; break; }
+                // Touchdown: the ground, or as good as - the downrange figure aims the landing-site simulation.
+                if (v < 120.0 && alt < 3000.0) { res.Outcome = ReentryOutcome.Landed; break; }
             }
 
             ReentryNode worst = null;

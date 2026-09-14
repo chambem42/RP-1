@@ -791,6 +791,21 @@ namespace RP0
                     simParams.SimEntryAltitude = entryAlt;
                     simParams.SimEntryLeadTime = leadTime;
                     simParams.SimPropellantPercent = double.TryParse(_sPropellantPct, out double propPct) && propPct >= 0d ? Math.Min(propPct, 100d) : -1d;
+                    simParams.SimReentryAimAngleDeg = simParams.SimReentryAimSeconds = double.NaN;
+                    if (simParams.HasReentrySite)
+                    {
+                        // Aim the predicted touchdown at the site, not the periapsis: a lifting vehicle lands well past it.
+                        if (ReentryGUI.TryPredictTouchdown(simParams, out double aimAngle, out double aimSeconds, out double downrangeKm, out string aimProblem))
+                        {
+                            simParams.SimReentryAimAngleDeg = aimAngle;
+                            simParams.SimReentryAimSeconds = leadTime + aimSeconds;
+                            ScreenMessages.PostScreenMessage($"Aiming at {simParams.SimReentrySiteName}: predicted touchdown {downrangeKm:N0} km past the entry interface at {ReentryGUI.PredictAoA:N0} deg AoA", 8f, ScreenMessageStyle.UPPER_CENTER);
+                        }
+                        else
+                        {
+                            ScreenMessages.PostScreenMessage($"No touchdown prediction ({aimProblem}); aiming the periapsis at {simParams.SimReentrySiteName}", 8f, ScreenMessageStyle.UPPER_CENTER);
+                        }
+                    }
                     simParams.SimOrbitAltitude = 0;
                 }
                 else // Hyperbolic

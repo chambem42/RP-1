@@ -27,8 +27,11 @@ namespace RP0
         /// the body in the meantime, so the aim point is where the site will be then.
         /// </summary>
         /// <param name="descending">True for the southbound pass over the site, false for the northbound one.</param>
+        /// <param name="aimAngleDeg">In-plane angle past periapsis of the point to put over the site (0 = the periapsis
+        /// itself; the analysis's touchdown point otherwise), and <paramref name="aimSeconds"/> when after spawn the
+        /// vessel gets there. NaN for either aims the periapsis at its own arrival time.</param>
         public static bool TryOrient(CelestialBody body, ReentrySite site, double incDeg, bool descending,
-                                     double sma, double ecc, double meanAnomalyAtSpawn, double ut,
+                                     double sma, double ecc, double meanAnomalyAtSpawn, double ut, double aimAngleDeg, double aimSeconds,
                                      out double lanDeg, out double argPeDeg, out double timeToPe, out double headingDeg, out string error)
         {
             lanDeg = argPeDeg = timeToPe = headingDeg = 0d;
@@ -36,10 +39,13 @@ namespace RP0
             double mu = body.gravParameter;
             double n = Math.Sqrt(mu / Math.Pow(Math.Abs(sma), 3));
             timeToPe = Math.Abs(meanAnomalyAtSpawn) / n;
+            bool aimPe = double.IsNaN(aimAngleDeg) || double.IsNaN(aimSeconds);
+            double phi = aimPe ? 0d : aimAngleDeg * Math.PI / 180d;
+            double tArrive = aimPe ? timeToPe : aimSeconds;
 
-            // The site's direction from the body's centre when the vessel arrives at periapsis.
+            // The site's direction from the body's centre when the vessel arrives over it.
             Vector3d axis = body.angularVelocity.normalized;
-            double spinDeg = body.angularVelocity.magnitude * timeToPe * 180d / Math.PI;
+            double spinDeg = body.angularVelocity.magnitude * tArrive * 180d / Math.PI;
             Vector3d siteNow = (body.GetWorldSurfacePosition(site.Latitude, site.Longitude, 0d) - body.position).normalized;
             Vector3d rHat = (QuaternionD.AngleAxis(spinDeg, axis) * siteNow).normalized;
 
@@ -68,9 +74,12 @@ namespace RP0
                 vHat = Vector3d.Cross(nHat, rHat).normalized;
             }
 
+            // The aimed point sits phi past periapsis along the motion, so the periapsis is phi before it.
+            Vector3d pHat = (rHat * Math.Cos(phi) - vHat * Math.Sin(phi)).normalized;
+            Vector3d vPeHat = Vector3d.Cross(nHat, pHat).normalized;
             double rp = sma * (1d - ecc);
             double vPe = Math.Sqrt(mu * (2d / rp - 1d / sma));
-            Vector3d pos = rHat * rp, vel = vHat * vPe;
+            Vector3d pos = pHat * rp, vel = vPeHat * vPe;
 
             // KSP's orbit frame swaps y and z relative to world space.
             var orbit = new Orbit();

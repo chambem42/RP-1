@@ -30,6 +30,55 @@ namespace RP0
         private double[] _peList, _aoaList;
         private string _summary = "";
 
+        /// <summary>The attitude the Predict button would fly, for the simulation dialog's landing-site aim.</summary>
+        public static double PredictAoA { get; private set; }
+        public static bool PredictShieldFirst { get; private set; }
+        private static bool _predictSeen;
+
+        /// <summary>
+        /// Fly the simulation's Reentry setup through the solver at the tab's AoA and report where it touches down:
+        /// the in-plane angle past periapsis and the time after the entry interface. False (with a reason) when
+        /// the analysis cannot run; the aim then falls back to the periapsis.
+        /// </summary>
+        public static bool TryPredictTouchdown(SimulationParams sp, out double angleFromPeDeg, out double secondsFromInterface, out double downrangeKm, out string error)
+        {
+            angleFromPeDeg = secondsFromInterface = downrangeKm = double.NaN;
+            error = null;
+            try
+            {
+                List<Part> parts = EditorLogic.fetch?.ship?.Parts;
+                CelestialBody body = sp.SimulationBody ?? Planetarium.fetch.Home;
+                if (parts == null || parts.Count == 0) { error = "no vessel"; return false; }
+                if (FarEditorAero.Available && !FarEditorAero.Ready) { error = "FAR is still voxelizing the craft"; return false; }
+                var k = ReentryConstants.FromGame(body);
+                var solver = new ReentrySolver(body, k);
+                bool shieldFirst = _predictSeen ? PredictShieldFirst : DefaultAttitude(parts) == 0;
+                ReentryAttitude att = ReentryVesselBuilder.Build(parts, body, k, PredictAoA, shieldFirst, new DefaultAeroFactory());
+                if (!solver.TryEntryState(sp.SimOrbitPe, sp.SimReentryArrival, sp.SimOrbitAp, sp.SimEntrySpeed, sp.SimEntryAltitude,
+                                          out double v0, out double fpa, out error))
+                    return false;
+                ReentryResult r = solver.Simulate(att, sp.SimEntryAltitude, v0, fpa, liftDown: false);
+                if (r.Outcome == ReentryOutcome.SkippedOut || r.Outcome == ReentryOutcome.TimedOut) { error = "the vehicle does not come down on this pass"; return false; }
+                // True anomaly at the interface (inbound, so negative) from the conic; downrange is the inertial angle flown after it.
+                if (!SimReentryUtils.TryComputeEntry(body, sp.SimOrbitPe, sp.SimReentryArrival, sp.SimOrbitAp, sp.SimEntrySpeed, sp.SimEntryAltitude,
+                                                     0d, out SimReentryUtils.EntryState entry, out error))
+                    return false;
+                double rEntry = body.Radius + sp.SimEntryAltitude;
+                double cosNu = (entry.SMA * (1d - entry.Ecc * entry.Ecc) / rEntry - 1d) / entry.Ecc;
+                double nuEntry = -Math.Acos(Math.Max(-1d, Math.Min(1d, cosNu)));
+                angleFromPeDeg = (nuEntry + r.Downrange / body.Radius) * 180d / Math.PI;
+                secondsFromInterface = r.Duration;
+                downrangeKm = r.Downrange / 1000d;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                RP0Debug.LogWarning($"Touchdown prediction failed: {ex}");
+                return false;
+            }
+        }
+
         /// <summary>The last analysis/prediction summary and the last predicted trace's path, for automation.</summary>
         public static string LastSummary { get; private set; } = "";
         public static string LastPredictionPath { get; private set; } = "";
@@ -88,6 +137,9 @@ namespace RP0
             GUILayout.EndHorizontal();
 
             _attitude = GUILayout.SelectionGrid(_attitude, _attitudeLabels, 2);
+            PredictShieldFirst = _attitude == 0;
+            _predictSeen = true;
+            PredictAoA = ParseOr(_sPredictAoA, 0.0);
 
             GUILayout.BeginHorizontal();
             GUILayout.Label(new GUIContent("g limit:", "Peak deceleration allowed. Blank = 12 g crewed, 30 g uncrewed."), GUILayout.Width(150));

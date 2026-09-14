@@ -1394,14 +1394,18 @@ namespace RP0
             {
                 var site = new ReentrySite { Name = simParams.SimReentrySiteName, Latitude = simParams.SimReentrySiteLat, Longitude = simParams.SimReentrySiteLon };
                 if (!SimReentrySite.TryOrient(body, site, inc, simParams.SimReentryDescending, entry.SMA, entry.Ecc, entry.MeanAnomaly,
-                                              Planetarium.GetUniversalTime(), out lan, out argPe, out double tToPe, out double heading, out string siteError))
+                                              Planetarium.GetUniversalTime(), simParams.SimReentryAimAngleDeg, simParams.SimReentryAimSeconds,
+                                              out lan, out argPe, out double tToPe, out double heading, out string siteError))
                 {
                     RP0Debug.LogError($"Could not aim reentry at {site.Name}: {siteError}");
                     ScreenMessages.PostScreenMessage($"Could not aim at {site.Name}: {siteError}", 8f, ScreenMessageStyle.UPPER_CENTER);
                     return;
                 }
-                RP0Debug.Log($"Reentry aimed at {site}: periapsis overhead in {tToPe:F0} s, heading {heading:F0}, LAN={lan:F2} argPe={argPe:F2}");
-                ScreenMessages.PostScreenMessage($"Periapsis over {site.Name} in {tToPe:N0} s, ground track heading {heading:N0} deg", 8f, ScreenMessageStyle.UPPER_CENTER);
+                bool aimedTouchdown = !double.IsNaN(simParams.SimReentryAimAngleDeg) && !double.IsNaN(simParams.SimReentryAimSeconds);
+                RP0Debug.Log($"Reentry aimed at {site}: {(aimedTouchdown ? $"predicted touchdown ({simParams.SimReentryAimAngleDeg:F1} deg past Pe, {simParams.SimReentryAimSeconds:F0} s)" : "periapsis")} overhead, heading {heading:F0}, LAN={lan:F2} argPe={argPe:F2}");
+                ScreenMessages.PostScreenMessage(aimedTouchdown
+                    ? $"Predicted touchdown over {site.Name} in {simParams.SimReentryAimSeconds:N0} s, ground track heading {heading:N0} deg"
+                    : $"Periapsis over {site.Name} in {tToPe:N0} s (no touchdown prediction), heading {heading:N0} deg", 8f, ScreenMessageStyle.UPPER_CENTER);
             }
 
             RP0Debug.Log($"Reentry: {body.bodyName} Pe={simParams.SimOrbitPe:F0}m sma={entry.SMA:F0} ecc={entry.Ecc:F4} " +

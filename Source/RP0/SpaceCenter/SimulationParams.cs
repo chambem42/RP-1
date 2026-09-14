@@ -108,6 +108,11 @@ namespace RP0
         [Persistent]
         public bool SimReentryDescending;
         public bool HasReentrySite => !string.IsNullOrEmpty(SimReentrySiteName);
+        // Where the editor's reentry analysis says the vessel touches down, as an in-plane angle past periapsis
+        // (deg, negative = before it) and seconds after the entry interface. The site aim puts THAT point over
+        // the site. NaN = no analysis available; the periapsis is aimed instead.
+        [Persistent]
+        public double SimReentryAimAngleDeg = double.NaN, SimReentryAimSeconds = double.NaN;
 
         public void Reset()
         {
