@@ -95,6 +95,10 @@ namespace RP0
         // Write per-tick heating data to a CSV, to check the editor's reentry prediction against real flight.
         [Persistent]
         public bool LogReentryTelemetry;
+        // Engine propellants set to this percent of capacity once the vessel is on the entry trajectory; -1 leaves
+        // the craft as built. The editor analysis takes the same number so both see the same landing weight.
+        [Persistent]
+        public double SimPropellantPercent = -1d;
 
         public void Reset()
         {

@@ -7,9 +7,10 @@ using KSP.UI.Screens;
 namespace RP0
 {
     /// <summary>
-    /// Tints the editor parts by how close a predicted entry took them to their limits: cold blue through
-    /// yellow to red at the limit, and parts that went over it drawn half transparent. Uses the stock part
-    /// highlighter (the same mechanism as the simulation dialog's autostage preview), so it clears cleanly.
+    /// Tints the editor parts by how close a predicted entry took them to their limits, with the same edge
+    /// highlight the flight scene's temperature gauges use (TemperatureGauge: nothing below the highlight
+    /// threshold, then red brightening toward orange at the limit). Parts that went over their limit are
+    /// drawn as red ghosts. Uses the stock part highlighter, so it clears cleanly.
     /// </summary>
     public static class ReentryHeatHighlight
     {
@@ -32,31 +33,39 @@ namespace RP0
                 double frac = n.WorstFrac;
                 if (frac >= 1.0)
                 {
-                    // Over the limit: the part is gone, so draw it as a ghost - no glow, which would paint
-                    // over the faded mesh and make it read as merely washed out.
-                    p.SetHighlightDefault();
-                    p.SetHighlight(false, false);
+                    // Over the limit: the part is gone - a red ghost. Plain edge highlight, not see-through,
+                    // which would paint a solid fill over the faded mesh.
+                    p.highlightType = Part.HighlightType.AlwaysOn;
+                    p.SetHighlightColor(XKCDColors.Red);
+                    p.SetHighlight(true, false);
                     p.SetOpacity(OverLimitOpacity);
+                    _tinted.Add(p);
                     _faded.Add(p);
                     continue;
                 }
+                Color? c = ColorFor(p, frac);
+                if (!c.HasValue) continue;   // below the gauge threshold: no tint, as in flight
                 p.highlightType = Part.HighlightType.AlwaysOn;
-                p.SetHighlightColor(ColorFor(frac));
+                p.SetHighlightColor(c.Value);
                 p.SetHighlight(true, false);
-                if (p.highlighter != null) p.highlighter.SeeThroughOn();
                 _tinted.Add(p);
             }
             Hook();
         }
 
-        /// <summary>Peak-over-limit fraction to a colour: blue (cold) - cyan - green - yellow - red at the limit; past it stays red.</summary>
-        public static Color ColorFor(double frac)
+        /// <summary>
+        /// The flight scene's edge-highlight colour for a peak-over-limit fraction (TemperatureGauge.Update):
+        /// none below PhysicsGlobals.TemperatureGaugeHighlightThreshold times the part's own multiplier, then
+        /// red scaled by the fraction, running to orange at the limit.
+        /// </summary>
+        public static Color? ColorFor(Part p, double frac)
         {
-            float f = (float)Math.Max(0.0, Math.Min(1.0, frac));
-            // 0.0 blue, 0.35 cyan/green, 0.7 yellow, 1.0 red
-            if (f < 0.35f) return Color.Lerp(new Color(0.15f, 0.3f, 1f), new Color(0.1f, 0.9f, 0.6f), f / 0.35f);
-            if (f < 0.7f) return Color.Lerp(new Color(0.1f, 0.9f, 0.6f), new Color(1f, 0.95f, 0.1f), (f - 0.35f) / 0.35f);
-            return Color.Lerp(new Color(1f, 0.95f, 0.1f), new Color(1f, 0.05f, 0.05f), (f - 0.7f) / 0.3f);
+            float num = (float)frac;
+            float threshold = PhysicsGlobals.TemperatureGaugeHighlightThreshold * (p != null ? p.edgeHighlightThresholdMult : 1f);
+            if (num <= threshold) return null;
+            float edgeRatio = Mathf.InverseLerp(threshold, 1f, num);
+            float colorScale = Mathf.Clamp01(num);
+            return Color.Lerp(XKCDColors.Red * colorScale, XKCDColors.KSPNotSoGoodOrange * colorScale, edgeRatio);
         }
 
         public static void Clear()
@@ -66,7 +75,6 @@ namespace RP0
                 if (p == null) continue;
                 p.SetHighlightDefault();
                 p.SetHighlight(false, false);
-                if (p.highlighter != null) p.highlighter.SeeThroughOff();
             }
             foreach (Part p in _faded)
                 if (p != null) p.SetOpacity(1f);

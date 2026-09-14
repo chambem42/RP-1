@@ -16,7 +16,7 @@ namespace RP0
 
         private static string _sOrbitAlt = "", _sOrbitPe = "", _sOrbitAp = "", _sOrbitInc = "", _sOrbitLAN = "", _sOrbitMNA = "", _sOrbitArgPe = "", _UTString = "", _sDelay = "0";
         private static string _sHypInsertionDV = "", _sHypPeAlt = "", _sHypTimeToPe = "", _sHypTransferTime = "", _sAutostageTarget = "";
-        private static string _sEntryAlt = "", _sEntrySpeed = "", _sEntryLeadTime = "30";
+        private static string _sEntryAlt = "", _sEntrySpeed = "", _sEntryLeadTime = "30", _sPropellantPct = "";
         private static bool _fromCurrentUT = true;
 
         // Cached KAC transfer-window lookup for the current hyperbolic target (re-scanned when the target or
@@ -367,6 +367,11 @@ namespace RP0
             if (selAtt != prevAtt) simParams.SimReentryAttitude = (SimReentryAttitude)selAtt;
             GUILayout.EndHorizontal();
 
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(new GUIContent("Propellant remaining (%): ", "Once on the trajectory, set every engine propellant to this share of its tanks. Blank = as built. Use the same number in the editor's reentry analysis."));
+            _sPropellantPct = GUILayout.TextField(_sPropellantPct, GUILayout.Width(80));
+            GUILayout.EndHorizontal();
+
             simParams.LogReentryTelemetry = GUILayout.Toggle(simParams.LogReentryTelemetry, new GUIContent(" Log thermal telemetry",
                 "Write per-tick heating data to saves/<save>/RP-1_ReentryLogs/*.csv, for comparing a flown entry against the editor's prediction."));
 
@@ -429,6 +434,7 @@ namespace RP0
             if (string.IsNullOrEmpty(_sEntrySpeed) && simParams.SimEntrySpeed > 0d) _sEntrySpeed = simParams.SimEntrySpeed.ToString("F0");
             if (string.IsNullOrEmpty(_sEntryAlt)) _sEntryAlt = (simParams.SimEntryAltitude / 1000d).ToString("F0");
             _sEntryLeadTime = simParams.SimEntryLeadTime.ToString("F0");
+            if (string.IsNullOrEmpty(_sPropellantPct) && simParams.SimPropellantPercent >= 0d) _sPropellantPct = simParams.SimPropellantPercent.ToString("F0");
         }
 
         // Parses the reentry text fields. Returns false, with a reason, if any of them is unusable.
@@ -720,6 +726,7 @@ namespace RP0
                     simParams.SimEntrySpeed = entrySpeed;
                     simParams.SimEntryAltitude = entryAlt;
                     simParams.SimEntryLeadTime = leadTime;
+                    simParams.SimPropellantPercent = double.TryParse(_sPropellantPct, out double propPct) && propPct >= 0d ? Math.Min(propPct, 100d) : -1d;
                     simParams.SimOrbitAltitude = 0;
                 }
                 else // Hyperbolic

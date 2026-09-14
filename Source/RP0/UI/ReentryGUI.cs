@@ -22,6 +22,7 @@ namespace RP0
         private string _sAoAMax = "30", _sAoASteps = "4";
         private string _sGLimit = "";
         private string _sPredictAoA = "0";
+        private string _sPropellantPct = "";
         private int _attitude = -1;
         private bool _bothLiftDirections = true;
 
@@ -91,6 +92,10 @@ namespace RP0
             GUILayout.BeginHorizontal();
             GUILayout.Label(new GUIContent("g limit:", "Peak deceleration allowed. Blank = 12 g crewed, 30 g uncrewed."), GUILayout.Width(150));
             _sGLimit = GUILayout.TextField(_sGLimit, GUILayout.Width(70));
+            GUILayout.EndHorizontal();
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(new GUIContent("Propellant remaining (%):", "Before analysing, set every engine propellant on the craft to this share of its tanks (the simulation's Reentry mode takes the same number). Blank = as built."), GUILayout.Width(150));
+            _sPropellantPct = GUILayout.TextField(_sPropellantPct, GUILayout.Width(70));
             GUILayout.EndHorizontal();
             _bothLiftDirections = GUILayout.Toggle(_bothLiftDirections, new GUIContent(" Try lift up and lift down",
                 "Fly each pair both lift-up and lift-down and keep the better. Off = lift up only."));
@@ -183,6 +188,14 @@ namespace RP0
             return cryo + $"; {att.ControlTorqueKNm:N0} kN m of wheel/RCS pitch torque";
         }
 
+        // The propellant-remaining box, applied to the editor ship so FAR's CoM and this analysis agree.
+        private void ApplyPropellantLoad(List<Part> parts)
+        {
+            if (!double.TryParse(_sPropellantPct, out double pct) || pct < 0.0) return;
+            int n = PropellantLoad.Apply(parts, pct);
+            if (n > 0 && EditorLogic.fetch?.ship != null) GameEvents.onEditorShipModified.Fire(EditorLogic.fetch.ship);
+        }
+
         // FAR voxelizes a craft a moment after it loads or changes; running before that would silently fall
         // back to drag cubes, which are not what the vessel flies with.
         private bool FarReadyOrExplain()
@@ -199,6 +212,7 @@ namespace RP0
             try
             {
                 if (!FarReadyOrExplain()) return;
+                ApplyPropellantLoad(parts);
                 double peMin = ParseOr(_sPeMin, -50) * 1000.0, peMax = ParseOr(_sPeMax, 80) * 1000.0;
                 int peSteps = Math.Max(1, (int)ParseOr(_sPeSteps, 6));
                 double aoaMax = ParseOr(_sAoAMax, 30);
@@ -298,6 +312,7 @@ namespace RP0
             try
             {
                 if (!FarReadyOrExplain()) return;
+                ApplyPropellantLoad(parts);
                 SimulationParams sp = SpaceCenterManagement.Instance?.SimulationParams;
                 if (sp == null || sp.SimOrbitMode != SimOrbitMode.Reentry)
                 {
@@ -379,7 +394,7 @@ namespace RP0
                 _summary = $"Predicted (Pe {sp.SimOrbitPe / 1000:N0} km, entry {v0:N0} m/s at {fpa:N2}°, AoA {aoa:N0}° {(_attitude == 0 ? "shield first" : "nose first")}): {Describe(r.Outcome)} - " +
                            $"peak skin {r.PeakSkin:N0} K ({r.PeakSkinFrac * 100:N0}%) on {r.LimitingPart}, {r.PeakG:N1} g, {r.Duration:N0} s.\n" +
                            $"Wrote {trace.Count} rows to {System.IO.Path.GetFileName(path)} (+ .parts.csv)" + (factory.TrimSummary.Length > 0 ? $"\n{factory.TrimSummary}" : "") +
-                           "\nParts are tinted by their peak: blue cold, yellow at 70%, red at the limit; parts that went over it are ghosted (they would be lost).";
+                           "\nParts carry the flight thermal highlight at their peak (red from 40% of the limit, orange at it); parts that went over it are red ghosts.";
                 ReentryHeatHighlight.Apply(att);
             }
             catch (Exception ex)
