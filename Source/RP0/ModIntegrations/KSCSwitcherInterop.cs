@@ -109,6 +109,26 @@ namespace RP0
             return result;
         }
 
+        /// <summary>Every KSCSwitcher site with its PQSCity latitude/longitude (empty without KSCSwitcher).</summary>
+        public static List<(string id, string displayName, double lat, double lon)> GetAvailableSiteCoordinates()
+        {
+            var result = new List<(string, string, double, double)>();
+            if (!IsKSCSwitcherInstalled) return result;
+            if (!(_fiKSCSwSitesList.GetValue(_sites) is List<ConfigNode> rawList)) return result;
+            foreach (ConfigNode site in rawList)
+            {
+                string id = site.GetValue("name");
+                if (string.IsNullOrEmpty(id)) continue;
+                string displayName = site.GetValue("displayName");
+                if (string.IsNullOrEmpty(displayName)) displayName = id;
+                ConfigNode city = site.GetNode("PQSCity");
+                if (city == null || !double.TryParse(city.GetValue("latitude"), out double lat) || !double.TryParse(city.GetValue("longitude"), out double lon)) continue;
+                result.Add((id, displayName, lat, lon));
+            }
+            result.Sort((a, b) => string.Compare(a.Item2, b.Item2, StringComparison.OrdinalIgnoreCase));
+            return result;
+        }
+
         public static void SetLastKSCSite(string siteName)
         {
             if (!IsKSCSwitcherInstalled || string.IsNullOrEmpty(siteName)) return;

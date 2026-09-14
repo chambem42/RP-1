@@ -279,6 +279,7 @@
     <Compile Include="UI\ReentryGUI.cs" />
     <Compile Include="UI\ReentryHeatHighlight.cs" />
     <Compile Include="Reentry\PropellantLoad.cs" />
+    <Compile Include="SpaceCenter\SimReentrySite.cs" />
     <Compile Include="Utilities\ECMHelper.cs" />
     <Compile Include="Utilities\LambertSolver.cs" />
     <Compile Include="SpaceCenter\Projects\ISpaceCenterProject.cs" />

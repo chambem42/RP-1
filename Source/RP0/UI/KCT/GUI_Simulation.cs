@@ -17,6 +17,10 @@ namespace RP0
         private static string _sOrbitAlt = "", _sOrbitPe = "", _sOrbitAp = "", _sOrbitInc = "", _sOrbitLAN = "", _sOrbitMNA = "", _sOrbitArgPe = "", _UTString = "", _sDelay = "0";
         private static string _sHypInsertionDV = "", _sHypPeAlt = "", _sHypTimeToPe = "", _sHypTransferTime = "", _sAutostageTarget = "";
         private static string _sEntryAlt = "", _sEntrySpeed = "", _sEntryLeadTime = "30", _sPropellantPct = "";
+        private static List<ReentrySite> _reentrySites;
+        private static bool _showSiteList;
+        private static Vector2 _siteListScroll;
+        private static readonly string[] _reentryPassLabels = { "Northbound pass", "Southbound pass" };
         private static bool _fromCurrentUT = true;
 
         // Cached KAC transfer-window lookup for the current hyperbolic target (re-scanned when the target or
@@ -204,10 +208,14 @@ namespace RP0
 
             if (simParams.SimulateInOrbit)
             {
-                GUILayout.BeginHorizontal();
-                GUILayout.Label("Delay (s): ");
-                _sDelay = GUILayout.TextField(_sDelay, 3, GUILayout.Width(40));
-                GUILayout.EndHorizontal();
+                bool aimedAtSite = isReentry && simParams.HasReentrySite;
+                if (!aimedAtSite)
+                {
+                    GUILayout.BeginHorizontal();
+                    GUILayout.Label("Delay (s): ");
+                    _sDelay = GUILayout.TextField(_sDelay, 3, GUILayout.Width(40));
+                    GUILayout.EndHorizontal();
+                }
 
                 // In hyperbolic mode these override the transfer-derived approach plane per-axis; leave a
                 // field blank to derive that axis from the v∞. (The KAC button fills inclination from TWP.)
@@ -217,10 +225,13 @@ namespace RP0
                 _sOrbitInc = GUILayout.TextField(_sOrbitInc, GUILayout.Width(50));
                 GUILayout.EndHorizontal();
 
-                GUILayout.BeginHorizontal();
-                GUILayout.Label(new GUIContent("LAN (degrees): ", approachHint));
-                _sOrbitLAN = GUILayout.TextField(_sOrbitLAN, GUILayout.Width(50));
-                GUILayout.EndHorizontal();
+                if (!aimedAtSite)
+                {
+                    GUILayout.BeginHorizontal();
+                    GUILayout.Label(new GUIContent("LAN (degrees): ", approachHint));
+                    _sOrbitLAN = GUILayout.TextField(_sOrbitLAN, GUILayout.Width(50));
+                    GUILayout.EndHorizontal();
+                }
 
                 if (isHyperbolic)
                 {
@@ -240,11 +251,14 @@ namespace RP0
                         GUILayout.EndHorizontal();
                     }
 
-                    GUILayout.BeginHorizontal();
-                    GUILayout.Label(new GUIContent("Argument of Periapsis (degrees): ",
-                        isReentry ? "With inclination and LAN, sets where on the globe the entry happens." : ""));
-                    _sOrbitArgPe = GUILayout.TextField(_sOrbitArgPe, GUILayout.Width(50));
-                    GUILayout.EndHorizontal();
+                    if (!aimedAtSite)
+                    {
+                        GUILayout.BeginHorizontal();
+                        GUILayout.Label(new GUIContent("Argument of Periapsis (degrees): ",
+                            isReentry ? "With inclination and LAN, sets where on the globe the entry happens." : ""));
+                        _sOrbitArgPe = GUILayout.TextField(_sOrbitArgPe, GUILayout.Width(50));
+                        GUILayout.EndHorizontal();
+                    }
                 }
 
                 GUILayout.Space(4);
@@ -355,6 +369,8 @@ namespace RP0
             _sEntryAlt = GUILayout.TextField(_sEntryAlt, GUILayout.Width(80));
             GUILayout.EndHorizontal();
 
+            DrawReentrySitePicker(simParams);
+
             GUILayout.BeginHorizontal();
             GUILayout.Label(new GUIContent("Lead time (s): ", "Coast this long before reaching the entry interface, to set attitude first."));
             _sEntryLeadTime = GUILayout.TextField(_sEntryLeadTime, GUILayout.Width(80));
@@ -435,6 +451,51 @@ namespace RP0
             if (string.IsNullOrEmpty(_sEntryAlt)) _sEntryAlt = (simParams.SimEntryAltitude / 1000d).ToString("F0");
             _sEntryLeadTime = simParams.SimEntryLeadTime.ToString("F0");
             if (string.IsNullOrEmpty(_sPropellantPct) && simParams.SimPropellantPercent >= 0d) _sPropellantPct = simParams.SimPropellantPercent.ToString("F0");
+        }
+
+        // Landing-site aim: a dropdown of the home body's sites plus the pass direction. With a site chosen the
+        // orbit's LAN and argument of periapsis are derived at placement, so those boxes (and the delay) are hidden.
+        private static void DrawReentrySitePicker(SimulationParams simParams)
+        {
+            if (_reentrySites == null) _reentrySites = SimReentrySite.Collect();
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(new GUIContent("Aim at: ", "Put the trajectory's periapsis over a landing site. The site moves with the planet while the vessel coasts in; that is accounted for."));
+            string current = simParams.HasReentrySite ? simParams.SimReentrySiteName : "(none: LAN and argument of periapsis as typed)";
+            if (GUILayout.Button(new GUIContent(current + (_showSiteList ? "  \u25B2" : "  \u25BC")), GUILayout.MinWidth(220)))
+            {
+                _showSiteList = !_showSiteList;
+                if (_showSiteList) _reentrySites = SimReentrySite.Collect();
+            }
+            GUILayout.EndHorizontal();
+            if (_showSiteList)
+            {
+                _siteListScroll = GUILayout.BeginScrollView(_siteListScroll, GUILayout.Height(Math.Min(200, 24 * (_reentrySites.Count + 2))));
+                if (GUILayout.Button("(none: LAN and argument of periapsis as typed)"))
+                {
+                    simParams.SimReentrySiteName = "";
+                    _showSiteList = false;
+                }
+                foreach (ReentrySite site in _reentrySites)
+                {
+                    if (GUILayout.Button(new GUIContent(site.Name, $"{site.Latitude:F2}, {site.Longitude:F2}")))
+                    {
+                        simParams.SimReentrySiteName = site.Name;
+                        simParams.SimReentrySiteLat = site.Latitude;
+                        simParams.SimReentrySiteLon = site.Longitude;
+                        _showSiteList = false;
+                        _centralWindowPosition.height = 1;
+                    }
+                }
+                GUILayout.EndScrollView();
+            }
+            if (simParams.HasReentrySite)
+            {
+                int pass = GUILayout.SelectionGrid(simParams.SimReentryDescending ? 1 : 0, _reentryPassLabels, 2);
+                simParams.SimReentryDescending = pass == 1;
+                double lat = Math.Abs(simParams.SimReentrySiteLat);
+                if (double.TryParse(_sOrbitInc, out double inc) && (inc < lat - 0.01 || inc > 180d - lat + 0.01))
+                    GUILayout.Label($"Inclination must be between {lat:F1} and {180d - lat:F1} deg to pass over {simParams.SimReentrySiteName}.");
+            }
         }
 
         // Parses the reentry text fields. Returns false, with a reason, if any of them is unusable.

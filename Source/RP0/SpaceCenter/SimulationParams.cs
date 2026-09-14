@@ -99,6 +99,15 @@ namespace RP0
         // the craft as built. The editor analysis takes the same number so both see the same landing weight.
         [Persistent]
         public double SimPropellantPercent = -1d;
+        // Aim the entry at a landing site: the orbit's LAN and argument of periapsis are derived so the periapsis
+        // passes over it (on SimInclination, north- or southbound). Empty name = use SimLAN/SimArgPe as typed.
+        [Persistent]
+        public string SimReentrySiteName = "";
+        [Persistent]
+        public double SimReentrySiteLat, SimReentrySiteLon;
+        [Persistent]
+        public bool SimReentryDescending;
+        public bool HasReentrySite => !string.IsNullOrEmpty(SimReentrySiteName);
 
         public void Reset()
         {

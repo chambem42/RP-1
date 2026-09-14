@@ -1389,10 +1389,25 @@ namespace RP0
                 return;
             }
 
+            double argPe = simParams.SimArgPe;
+            if (simParams.HasReentrySite)
+            {
+                var site = new ReentrySite { Name = simParams.SimReentrySiteName, Latitude = simParams.SimReentrySiteLat, Longitude = simParams.SimReentrySiteLon };
+                if (!SimReentrySite.TryOrient(body, site, inc, simParams.SimReentryDescending, entry.SMA, entry.Ecc, entry.MeanAnomaly,
+                                              Planetarium.GetUniversalTime(), out lan, out argPe, out double tToPe, out double heading, out string siteError))
+                {
+                    RP0Debug.LogError($"Could not aim reentry at {site.Name}: {siteError}");
+                    ScreenMessages.PostScreenMessage($"Could not aim at {site.Name}: {siteError}", 8f, ScreenMessageStyle.UPPER_CENTER);
+                    return;
+                }
+                RP0Debug.Log($"Reentry aimed at {site}: periapsis overhead in {tToPe:F0} s, heading {heading:F0}, LAN={lan:F2} argPe={argPe:F2}");
+                ScreenMessages.PostScreenMessage($"Periapsis over {site.Name} in {tToPe:N0} s, ground track heading {heading:N0} deg", 8f, ScreenMessageStyle.UPPER_CENTER);
+            }
+
             RP0Debug.Log($"Reentry: {body.bodyName} Pe={simParams.SimOrbitPe:F0}m sma={entry.SMA:F0} ecc={entry.Ecc:F4} " +
                          $"entry {entry.EntrySpeed:F0}m/s FPA={entry.EntryFPA:F2}deg at {simParams.SimEntryAltitude:F0}m, " +
-                         $"spawn {entry.SpawnAltitude:F0}m MNA={entry.MeanAnomaly:F4} inc={inc:F2} LAN={lan:F1} argPe={simParams.SimArgPe:F1}");
-            FlightGlobals.fetch.SetShipOrbit(body.flightGlobalsIndex, entry.Ecc, entry.SMA, inc, lan, entry.MeanAnomaly, simParams.SimArgPe, 0.0);
+                         $"spawn {entry.SpawnAltitude:F0}m MNA={entry.MeanAnomaly:F4} inc={inc:F2} LAN={lan:F1} argPe={argPe:F1}");
+            FlightGlobals.fetch.SetShipOrbit(body.flightGlobalsIndex, entry.Ecc, entry.SMA, inc, lan, entry.MeanAnomaly, argPe, 0.0);
             ScreenMessages.PostScreenMessage($"Entry interface in {simParams.SimEntryLeadTime:N0} s: {entry.EntrySpeed:N0} m/s at {entry.EntryFPA:N2} deg",
                                              8f, ScreenMessageStyle.UPPER_CENTER);
         }
