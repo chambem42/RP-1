@@ -224,8 +224,6 @@ namespace RP0
                 GUILayout.BeginHorizontal();
                 GUILayout.Label(new GUIContent("Inclination (degrees): ", approachHint));
                 _sOrbitInc = GUILayout.TextField(_sOrbitInc, GUILayout.Width(50));
-                if (aimedAtSite && string.IsNullOrWhiteSpace(_sOrbitInc))
-                    GUILayout.Label($"= {Math.Abs(simParams.SimReentrySiteLat):F1} (minimum for the site)");
                 GUILayout.EndHorizontal();
 
                 if (!aimedAtSite)
