@@ -1337,8 +1337,8 @@ namespace RP0
                 yield return new WaitForFixedUpdate();
                 if (active != null && simParams.SimPropellantPercent >= 0d)
                 {
-                    int n = Reentry.PropellantLoad.Apply(active.parts, simParams.SimPropellantPercent);
-                    RP0Debug.Log($"Reentry sim: set {n} engine propellant resources to {simParams.SimPropellantPercent:N0}%");
+                    int n = FARReentryInterop.ApplyPropellantLoad(active.parts, simParams.SimPropellantPercent);
+                    RP0Debug.Log($"Reentry sim: set {n} engine propellant resources to {simParams.SimPropellantPercent:N0}%" + (FARReentryInterop.Available ? "" : " (FAR reentry API missing: nothing changed)"));
                 }
                 SetReentryAttitude(active, simParams.SimReentryAttitude == SimReentryAttitude.Retrograde);
             }

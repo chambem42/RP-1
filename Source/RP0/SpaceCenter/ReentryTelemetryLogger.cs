@@ -169,6 +169,11 @@ namespace RP0
         // multipliers, exposed/radiative areas, skin fraction) for the hottest few parts plus every engine,
         // so a per-part disagreement can be traced to a specific input rather than guessed at.
         private const int PartsHottest = 4;
+        public const string PartsHeaderLine =
+            "ut,missionTime,altitude,part,skinTemperature,skinMaxTemp,temperature,maxTemp,skinUnexposedTemperature," +
+            "exposedArea,radiativeArea,skinExposedAreaFrac,convTempMult,convCoeffMult,convAreaMult," +
+            "convectionFlux,radiationFlux,skinToInternalFlux,skinThermalMass,thermalMass,heatConvectiveConstant,emissiveConstant,mass,resourceMass," +
+            "ablationFlux,ablatorLeft";
         private StreamWriter _partsWriter;
         private readonly List<Part> _partsPick = new List<Part>();
 
@@ -179,7 +184,7 @@ namespace RP0
                 try
                 {
                     _partsWriter = new StreamWriter(_path.Replace(".csv", "") + ".parts.csv", false) { AutoFlush = true };
-                    _partsWriter.WriteLine(Reentry.ReentryPartSample.Header);
+                    _partsWriter.WriteLine(PartsHeaderLine);
                 }
                 catch (Exception ex)
                 {
@@ -194,7 +199,7 @@ namespace RP0
             sorted.Sort((a, b) => Frac(b).CompareTo(Frac(a)));
             for (int i = 0; i < sorted.Count && _partsPick.Count < PartsHottest; ++i) _partsPick.Add(sorted[i]);
             foreach (Part p in v.parts)
-                if (!_partsPick.Contains(p) && p.FindModuleImplementing<ModuleEngines>() != null) _partsPick.Add(p);
+                if (!_partsPick.Contains(p) && (p.FindModuleImplementing<ModuleEngines>() != null || p.FindModuleImplementing<ModuleAblator>() != null)) _partsPick.Add(p);
 
             var inv = CultureInfo.InvariantCulture;
             foreach (Part p in _partsPick)
@@ -214,7 +219,17 @@ namespace RP0
                 Append(sb, p.thermalConvectionFlux); Append(sb, p.thermalRadiationFlux); Append(sb, p.skinToInternalFlux);
                 Append(sb, p.skinThermalMass); Append(sb, p.thermalMass);
                 Append(sb, p.heatConvectiveConstant); Append(sb, p.emissiveConstant);
-                Append(sb, p.mass); Append(sb, p.resourceMass, last: true);
+                Append(sb, p.mass); Append(sb, p.resourceMass);
+                // ablation: the shield's pyrolysis flux and what is left of its ablator (0 / 0 for anything else)
+                ModuleAblator abl = p.FindModuleImplementing<ModuleAblator>();
+                double ablFlux = 0d, ablLeft = 0d;
+                if (abl != null)
+                {
+                    ablFlux = abl.flux;
+                    PartResource res = !string.IsNullOrEmpty(abl.ablativeResource) ? p.Resources.Get(abl.ablativeResource) : null;
+                    if (res != null) ablLeft = res.amount;
+                }
+                Append(sb, ablFlux); Append(sb, ablLeft, last: true);
                 _partsWriter.WriteLine(sb.ToString());
             }
         }

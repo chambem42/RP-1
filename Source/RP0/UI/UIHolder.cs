@@ -29,6 +29,7 @@ namespace RP0
         {
             _tw = new TopWindow();
             _tw.Start();
+            if (HighLogic.LoadedSceneIsEditor) KCT_GUI.RegisterFarReentryHook();
 
             Tooltip.RecreateInstance();    // Need to make sure that a new Tooltip instance is created after every scene change
         }
@@ -52,12 +53,6 @@ namespace RP0
         {
             if (_isGuiEnabled && !Milestones.NewspaperUI.IsOpen)
                 _tw.OnGUI();
-            // The reentry tint's part tooltip outlives the window: the tint stays on the craft until it is edited.
-            if (HighLogic.LoadedSceneIsEditor && ReentryHeatHighlight.Active)
-            {
-                if (Event.current.type == EventType.Repaint) ReentryHeatHighlight.Refresh();
-                ReentryHeatHighlight.DrawHoverTooltip();
-            }
         }
 
         public void HideIfShowing()

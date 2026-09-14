@@ -8,7 +8,7 @@ namespace RP0
         {
             Budget, Facilities, Integration, Construction, AstronautCosts, Tooling, ToolingType,
             Astronauts, Training, NewCourse, Naut, Avionics, Contracts, CareerLog, Programs,
-            CostBreakdown, Reentry
+            CostBreakdown
         };
 
         protected GUIStyle RightLabel, BoldLabel, BoldRightLabel, PressedButton, InfoButton, HorizontalLineStyle;
@@ -77,7 +77,6 @@ namespace RP0
                 case UITab.CareerLog:
                     return HighLogic.CurrentGame.Mode == Game.Modes.CAREER;
                 case UITab.Avionics:
-                case UITab.Reentry:
                     return HighLogic.LoadedSceneIsEditor;
                 case UITab.CostBreakdown:
                     return HighLogic.CurrentGame.Mode == Game.Modes.CAREER && HighLogic.LoadedSceneIsEditor;

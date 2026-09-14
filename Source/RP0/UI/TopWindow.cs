@@ -19,7 +19,6 @@ namespace RP0
         private readonly AvionicsGUI _avUI = new AvionicsGUI();
         private readonly ContractGUI _contractUI = new ContractGUI();
         private readonly CareerLogGUI _logUI = new CareerLogGUI();
-        private readonly ReentryGUI _reentryUI = new ReentryGUI();
 
         public TopWindow()
         {
@@ -96,8 +95,6 @@ namespace RP0
                 SwitchTabTo(UITab.Contracts);
             if (ShouldShowTab(UITab.CareerLog) && RenderToggleButton("Career Log", _currentTab == UITab.CareerLog))
                 SwitchTabTo(UITab.CareerLog);
-            if (ShouldShowTab(UITab.Reentry) && RenderToggleButton("Reentry", _currentTab == UITab.Reentry))
-                SwitchTabTo(UITab.Reentry);
             GUILayout.EndHorizontal();
             GUILayout.EndVertical();
         }
@@ -159,9 +156,6 @@ namespace RP0
                             break;
                         case UITab.CostBreakdown:
                             _costUI.RenderCostBreakdownTab();
-                            break;
-                        case UITab.Reentry:
-                            _reentryUI.RenderReentryTab();
                             break;
                         default:    // can't happen
                             break;

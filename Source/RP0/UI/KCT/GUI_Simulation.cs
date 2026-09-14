@@ -417,22 +417,39 @@ namespace RP0
         /// Fill the simulation config's Reentry mode from the editor's reentry analysis and open it, so the
         /// predicted corridor can be flown for real.
         /// </summary>
-        public static void PrefillReentrySim(double peKm, SimReentryArrival arrival, double apKm, double entrySpeed, bool shieldFirst)
+        /// <summary>
+        /// Hooked into FAR's Reentry tab ("Set up simulation"): fills the simulation's Reentry mode with the
+        /// analysed entry so it can be flown for real.
+        /// </summary>
+        public static void PrefillReentrySim(double peAltM, bool arrivalIsApoapsis, double apAltM, double entrySpeed, bool shieldFirst, double aoaDeg, double propellantPct)
         {
+            if (SpaceCenterManagement.Instance == null) return;
             SimulationParams simParams = SpaceCenterManagement.Instance.SimulationParams;
             if (simParams == null) simParams = SpaceCenterManagement.Instance.SimulationParams = new SimulationParams();
             simParams.SimulationBody = Planetarium.fetch.Home;
             simParams.SimulateInOrbit = true;
             simParams.SimOrbitMode = SimOrbitMode.Reentry;
-            simParams.SimReentryArrival = arrival;
+            simParams.SimReentryArrival = arrivalIsApoapsis ? SimReentryArrival.Apoapsis : SimReentryArrival.EntrySpeed;
             simParams.SimReentryAttitude = shieldFirst ? SimReentryAttitude.Retrograde : SimReentryAttitude.Prograde;
-            _sOrbitPe = peKm.ToString("F0");
-            _sOrbitAp = apKm.ToString("F0");
+            _sOrbitPe = (peAltM / 1000d).ToString("F0");
+            _sOrbitAp = (apAltM / 1000d).ToString("F0");
             _sEntrySpeed = entrySpeed.ToString("F0");
             _sEntryAlt = "";   // re-defaults to the top of the atmosphere
+            _sReentryAoA = aoaDeg.ToString("F0");
+            _sPropellantPct = propellantPct >= 0d ? propellantPct.ToString("F0") : "";
             GUIStates.ShowSimConfig = true;
             _simulationConfigPosition.height = 1;
             _centralWindowPosition.height = 1;
+        }
+
+        private static bool _farHookRegistered;
+
+        /// <summary>Give FAR's Reentry tab its "Set up simulation" button; safe to call every frame.</summary>
+        public static void RegisterFarReentryHook()
+        {
+            if (_farHookRegistered) return;
+            _farHookRegistered = true;
+            FARReentryInterop.RegisterSimulationSetup(PrefillReentrySim);
         }
 
         // The SimulationParams values persist with the save, but these text boxes are session statics that
@@ -495,7 +512,7 @@ namespace RP0
                 int pass = GUILayout.SelectionGrid(simParams.SimReentryDescending ? 1 : 0, _reentryPassLabels, 2);
                 simParams.SimReentryDescending = pass == 1;
                 GUILayout.BeginHorizontal();
-                GUILayout.Label(new GUIContent("Entry AoA (deg): ", $"Angle of attack you will hold through the entry. The touchdown that gets put over the site is predicted at this angle, dropping to 0 below {ReentryGUI.ApproachSpeed:N0} m/s for the approach. Blank = 0."));
+                GUILayout.Label(new GUIContent("Entry AoA (deg): ", $"Angle of attack you will hold through the entry. The touchdown that gets put over the site is predicted at this angle, dropping to 0 below {FARReentryInterop.ApproachSpeed:N0} m/s for the approach. Blank = 0."));
                 _sReentryAoA = GUILayout.TextField(_sReentryAoA, GUILayout.Width(50));
                 GUILayout.EndHorizontal();
                 double lat = Math.Abs(simParams.SimReentrySiteLat);
@@ -800,7 +817,10 @@ namespace RP0
                     {
                         // Aim the predicted touchdown at the site, not the periapsis: a lifting vehicle lands well past it.
                         bool shieldFirst = simParams.SimReentryAttitude == SimReentryAttitude.Retrograde;
-                        if (ReentryGUI.TryPredictTouchdown(simParams, simParams.SimReentryAoA, shieldFirst, out double aimAngle, out double aimSeconds, out double downrangeKm, out string aimProblem))
+                        if (FARReentryInterop.TryPredictTouchdown(simParams.SimulationBody ?? Planetarium.fetch.Home, simParams.SimOrbitPe,
+                                                                  simParams.SimReentryArrival == SimReentryArrival.Apoapsis, simParams.SimOrbitAp, simParams.SimEntrySpeed,
+                                                                  simParams.SimEntryAltitude, simParams.SimReentryAoA, shieldFirst,
+                                                                  out double aimAngle, out double aimSeconds, out double downrangeKm, out string aimProblem))
                         {
                             simParams.SimReentryAimAngleDeg = aimAngle;
                             simParams.SimReentryAimSeconds = leadTime + aimSeconds;
