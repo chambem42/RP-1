@@ -18,6 +18,7 @@ namespace RP0
         private static bool _hooked;
 
         public static bool Active => _tinted.Count > 0 || _faded.Count > 0;
+        public const float OverLimitOpacity = 0.25f;
 
         /// <summary>Apply to every part the analysis knows; parts it skipped (no drag cube, launch clamps) are left alone.</summary>
         public static void Apply(ReentryAttitude att)
@@ -29,16 +30,21 @@ namespace RP0
                 Part p = n.Part;
                 if (p == null) continue;
                 double frac = n.WorstFrac;
+                if (frac >= 1.0)
+                {
+                    // Over the limit: the part is gone, so draw it as a ghost - no glow, which would paint
+                    // over the faded mesh and make it read as merely washed out.
+                    p.SetHighlightDefault();
+                    p.SetHighlight(false, false);
+                    p.SetOpacity(OverLimitOpacity);
+                    _faded.Add(p);
+                    continue;
+                }
                 p.highlightType = Part.HighlightType.AlwaysOn;
                 p.SetHighlightColor(ColorFor(frac));
                 p.SetHighlight(true, false);
                 if (p.highlighter != null) p.highlighter.SeeThroughOn();
                 _tinted.Add(p);
-                if (frac >= 1.0)
-                {
-                    p.SetOpacity(0.4f);
-                    _faded.Add(p);
-                }
             }
             Hook();
         }

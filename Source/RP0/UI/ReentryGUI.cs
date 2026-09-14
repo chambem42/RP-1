@@ -379,7 +379,7 @@ namespace RP0
                 _summary = $"Predicted (Pe {sp.SimOrbitPe / 1000:N0} km, entry {v0:N0} m/s at {fpa:N2}°, AoA {aoa:N0}° {(_attitude == 0 ? "shield first" : "nose first")}): {Describe(r.Outcome)} - " +
                            $"peak skin {r.PeakSkin:N0} K ({r.PeakSkinFrac * 100:N0}%) on {r.LimitingPart}, {r.PeakG:N1} g, {r.Duration:N0} s.\n" +
                            $"Wrote {trace.Count} rows to {System.IO.Path.GetFileName(path)} (+ .parts.csv)" + (factory.TrimSummary.Length > 0 ? $"\n{factory.TrimSummary}" : "") +
-                           "\nParts are tinted by their peak: blue cold, yellow at 70%, red at the limit; parts that went over it are drawn translucent.";
+                           "\nParts are tinted by their peak: blue cold, yellow at 70%, red at the limit; parts that went over it are ghosted (they would be lost).";
                 ReentryHeatHighlight.Apply(att);
             }
             catch (Exception ex)
