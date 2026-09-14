@@ -219,10 +219,13 @@ namespace RP0
 
                 // In hyperbolic mode these override the transfer-derived approach plane per-axis; leave a
                 // field blank to derive that axis from the v∞. (The KAC button fills inclination from TWP.)
-                string approachHint = isHyperbolic ? "Leave blank to derive from the transfer." : "";
+                string approachHint = isHyperbolic ? "Leave blank to derive from the transfer."
+                    : aimedAtSite ? $"Blank = the lowest inclination that passes over {simParams.SimReentrySiteName}: {Math.Abs(simParams.SimReentrySiteLat):F1} deg (a due-east pass at the site)." : "";
                 GUILayout.BeginHorizontal();
                 GUILayout.Label(new GUIContent("Inclination (degrees): ", approachHint));
                 _sOrbitInc = GUILayout.TextField(_sOrbitInc, GUILayout.Width(50));
+                if (aimedAtSite && string.IsNullOrWhiteSpace(_sOrbitInc))
+                    GUILayout.Label($"= {Math.Abs(simParams.SimReentrySiteLat):F1} (minimum for the site)");
                 GUILayout.EndHorizontal();
 
                 if (!aimedAtSite)
@@ -828,7 +831,9 @@ namespace RP0
                 }
                 else
                 {
-                    if (!double.TryParse(_sOrbitInc, out simParams.SimInclination))
+                    if (isReentry && simParams.HasReentrySite && string.IsNullOrWhiteSpace(_sOrbitInc))
+                        simParams.SimInclination = Math.Abs(simParams.SimReentrySiteLat);   // the lowest inclination that reaches the site
+                    else if (!double.TryParse(_sOrbitInc, out simParams.SimInclination))
                         simParams.SimInclination = 0;
                     else
                         simParams.SimInclination %= 360;

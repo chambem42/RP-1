@@ -47,11 +47,12 @@ namespace RP0
             double cosLat = Math.Sqrt(Math.Max(0d, 1d - sinLat * sinLat));
             double inc = incDeg * Math.PI / 180d;
             double cosTheta = cosLat > 1e-9 ? Math.Cos(inc) / cosLat : 2d;
-            if (Math.Abs(cosTheta) > 1d)
+            if (Math.Abs(cosTheta) > 1d + 1e-6)
             {
                 error = $"An inclination of {incDeg:F1} deg never passes over {site.Name} (latitude {site.Latitude:F1}); use at least {Math.Abs(site.Latitude):F1} deg (or at most {180d - Math.Abs(site.Latitude):F1} for a retrograde pass).";
                 return false;
             }
+            cosTheta = Math.Max(-1d, Math.Min(1d, cosTheta));   // inclination equal to the latitude: a single, due-east pass
             double sinTheta = Math.Sqrt(1d - cosTheta * cosTheta);
 
             // Orbit normal: perpendicular to rHat, at the inclination to the spin axis; the two roots are the
