@@ -316,14 +316,23 @@ namespace RP0.Reentry
                         skinSkinK = half * n.SkinSkinConductionMult * _k.SkinSkinConductionFactor * Math.Min(frac, 1.0 - frac) * 2.0 * Math.Sqrt(radArea);
                 }
 
-                // Explicit step, sub-stepped against the stiffest term acting on the exposed skin: convection
-                // is already clamped to one e-fold per second by stock, but ablation near its threshold and
-                // radiation at 3000 K are not.
+                // Explicit step, sub-stepped against the stiffest term acting on any of the part's nodes: convection
+                // is already clamped to one e-fold per second by stock, and conduction (below) to reaching the
+                // equalised temperature in a second, but ablation near its threshold and radiation at 3000 K are not.
+                // A control surface's skin and interior are a few tens of kJ/K each with a conductance of tens of
+                // kW/K between them: without the conduction terms here the step blows up.
                 double skinRecip = 1.0 / n.SkinThermalMass;
-                double dExpDT = finalCoeff + 4.0 * Pow3(n.SkinTemperature) * _k.StefanBoltzmann * emiss * aExp;
+                double cSkinExp = n.SkinThermalMass * frac, cSkinUnexp = n.SkinThermalMass * (1.0 - frac);
+                double kSkinInt = Math.Min(aExp * sic, Reduced(cSkinExp, n.ThermalMass));
+                double kUnexpInt = splitSkin ? Math.Min(aUnexp * sic, Reduced(cSkinUnexp, n.ThermalMass)) : 0.0;
+                double kSkinSkin = splitSkin ? Math.Min(skinSkinK, Reduced(cSkinExp, cSkinUnexp)) : 0.0;
+                double dExpDT = finalCoeff + 4.0 * Pow3(n.SkinTemperature) * _k.StefanBoltzmann * emiss * aExp + kSkinInt + kSkinSkin;
                 if (ablates && n.AblatorLeft > 0.0 && n.SkinTemperature > n.AblationTempThresh)
                     dExpDT += AblationFlux(n, n.SkinTemperature) * (-n.LossExp) / (n.SkinTemperature * n.SkinTemperature);
-                double stable = dExpDT > 0.0 ? 0.5 * n.SkinThermalMass * frac / dExpDT : dt;
+                double stiff = dExpDT / cSkinExp;
+                stiff = Math.Max(stiff, (kSkinInt + kUnexpInt) / n.ThermalMass);
+                if (splitSkin && cSkinUnexp > 0.0) stiff = Math.Max(stiff, (kSkinSkin + kUnexpInt + 4.0 * Pow3(n.SkinUnexposedTemperature) * _k.StefanBoltzmann * emiss * aUnexp) / cSkinUnexp);
+                double stable = stiff > 0.0 ? 0.5 / stiff : dt;
                 int sub = stable >= dt ? 1 : (int)Math.Min(64, Math.Ceiling(dt / Math.Max(stable, 1e-4)));
                 double h = dt / sub;
                 double convFlux = 0.0, lastRad = 0.0, lastSkinInt = 0.0;
@@ -355,9 +364,11 @@ namespace RP0.Reentry
                                                                     pressure, _k.SkinInternalConductionFactor, _k.ConductionFactor, _k.ThermalConvergenceFactor);
                         sic = _k.ConductionFactor * 10.0 * c * 0.5 * _k.SkinInternalConductionFactor * n.SkinInternalConductionMult;
                     }
-                    double skinInt = aExp * sic * (n.SkinTemperature - n.Temperature);
-                    double unexpSkinInt = splitSkin ? aUnexp * sic * (n.SkinUnexposedTemperature - n.Temperature) : 0.0;
-                    double skinSkin = splitSkin ? skinSkinK * (n.SkinTemperature - n.SkinUnexposedTemperature) : 0.0;
+                    // Stock scales each conduction flux so that in one second neither side crosses the temperature
+                    // the pair would equalise at (FlightIntegrator.UpdateConduction).
+                    double skinInt = EqualiseClamp(n.SkinTemperature, n.Temperature, cSkinExp, n.ThermalMass, aExp * sic * (n.SkinTemperature - n.Temperature));
+                    double unexpSkinInt = splitSkin ? EqualiseClamp(n.SkinUnexposedTemperature, n.Temperature, cSkinUnexp, n.ThermalMass, aUnexp * sic * (n.SkinUnexposedTemperature - n.Temperature)) : 0.0;
+                    double skinSkin = splitSkin ? EqualiseClamp(n.SkinTemperature, n.SkinUnexposedTemperature, cSkinExp, cSkinUnexp, skinSkinK * (n.SkinTemperature - n.SkinUnexposedTemperature)) : 0.0;
 
                     n.Temperature += (skinInt + unexpSkinInt) * cf / n.ThermalMass * h;
                     // Stock scales convection and conduction by the convergence factor (thermalConvectionFlux = convectionFlux * cf),
@@ -505,6 +516,32 @@ namespace RP0.Reentry
         }
 
         private static double Pow4(double x) { x *= x; return x * x; }
+        private static double Reduced(double a, double b) => a > 0.0 && b > 0.0 ? a * b / (a + b) : 0.0;
+
+        /// <summary>
+        /// Stock's conduction clamp: a flux (kW, positive from a to b) scaled so that at one second's worth of it
+        /// neither side passes the temperature the two would equalise at.
+        /// </summary>
+        private static double EqualiseClamp(double ta, double tb, double ca, double cb, double flux)
+        {
+            if (flux == 0.0 || ca <= 0.0 || cb <= 0.0) return 0.0;
+            double teq = (ta * ca + tb * cb) / (ca + cb);
+            double da = -flux / ca, db = flux / cb;
+            double oa = ta + da - teq, ob = tb + db - teq;
+            double f = 1.0;
+            if (ta > tb)
+            {
+                if (oa < 0.0) f = Math.Min(f, (da - oa) / da);
+                if (ob > 0.0) f = Math.Min(f, (db - ob) / db);
+            }
+            else
+            {
+                if (oa > 0.0) f = Math.Min(f, (da - oa) / da);
+                if (ob < 0.0) f = Math.Min(f, (db - ob) / db);
+            }
+            return flux * Math.Max(0.0, f);
+        }
+
         private static double Pow3(double x) { return x * x * x; }
 
         // ---- sweeps ------------------------------------------------------------------------------------
