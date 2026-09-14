@@ -107,6 +107,8 @@ namespace RP0.Reentry
         public double PeakSkin, PeakInternal, HeatLoad;
         /// <summary>Altitude (m) at which the part first went over a limit (skin or interior); NaN if it never did.</summary>
         public double LimitAltitude = double.NaN;
+        /// <summary>Altitudes (m) at which the skin and the interior peaked.</summary>
+        public double PeakSkinAltitude = double.NaN, PeakInternalAltitude = double.NaN;
         // Last step's values, for the trace
         public double LastConvectionFlux, LastRadiationFlux, LastSkinToInternalFlux, LastExposedArea, LastRadiativeArea;
         public double LastTempMult, LastCoeffMult, LastAreaMult;
@@ -129,6 +131,7 @@ namespace RP0.Reentry
             AblatorLeft = AblatorMax;
             PeakSkin = startTemp;
             LimitAltitude = double.NaN;
+            PeakSkinAltitude = PeakInternalAltitude = double.NaN;
             PeakInternal = Temperature;
             HeatLoad = 0.0;
         }

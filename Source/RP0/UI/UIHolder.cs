@@ -52,6 +52,9 @@ namespace RP0
         {
             if (_isGuiEnabled && !Milestones.NewspaperUI.IsOpen)
                 _tw.OnGUI();
+            // The reentry tint's part tooltip outlives the window: the tint stays on the craft until it is edited.
+            if (HighLogic.LoadedSceneIsEditor && ReentryHeatHighlight.Active)
+                ReentryHeatHighlight.DrawHoverTooltip();
         }
 
         public void HideIfShowing()

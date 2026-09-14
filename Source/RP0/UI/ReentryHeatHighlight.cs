@@ -16,6 +16,9 @@ namespace RP0
     {
         private static readonly List<Part> _tinted = new List<Part>();
         private static readonly List<Part> _faded = new List<Part>();
+        // What the hover tooltip says for each analysed part.
+        private static readonly Dictionary<Part, string> _tips = new Dictionary<Part, string>();
+        private static readonly GUIContent _tipContent = new GUIContent();
         private static bool _hooked;
 
         public static bool Active => _tinted.Count > 0 || _faded.Count > 0;
@@ -31,6 +34,7 @@ namespace RP0
                 Part p = n.Part;
                 if (p == null) continue;
                 double frac = n.WorstFrac;
+                _tips[p] = Describe(n);
                 if (frac >= 1.0)
                 {
                     // Over the limit: the part is gone - a red ghost. Plain edge highlight, not see-through,
@@ -68,8 +72,41 @@ namespace RP0
             return Color.Lerp(XKCDColors.Red * colorScale, XKCDColors.KSPNotSoGoodOrange * colorScale, edgeRatio);
         }
 
+        private static string Describe(ReentryNode n)
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.Append(n.Name);
+            if (n.SkinMaxTemp > 0.0)
+                sb.Append($"\nSkin peak {n.PeakSkin:N0} K of {n.SkinMaxTemp:N0} K ({n.SkinFrac * 100:N0}%)")
+                  .Append(double.IsNaN(n.PeakSkinAltitude) ? "" : $" at {n.PeakSkinAltitude / 1000:N0} km");
+            if (n.MaxTemp > 0.0)
+                sb.Append($"\nInterior peak {n.PeakInternal:N0} K of {n.MaxTemp:N0} K ({n.InternalFrac * 100:N0}%)")
+                  .Append(double.IsNaN(n.PeakInternalAltitude) ? "" : $" at {n.PeakInternalAltitude / 1000:N0} km");
+            if (!double.IsNaN(n.LimitAltitude))
+                sb.Append($"\nLOST at {n.LimitAltitude / 1000:N0} km");
+            else if (n.WorstFrac >= 0.9)
+                sb.Append($"\nWithin {(1.0 - n.WorstFrac) * 100:N0}% of its limit");
+            return sb.ToString();
+        }
+
+        /// <summary>Draw the hover tooltip for a tinted part; call from an OnGUI.</summary>
+        public static void DrawHoverTooltip()
+        {
+            if (_tips.Count == 0 || Event.current.type != EventType.Repaint) return;
+            Part hovered = Mouse.HoveredPart;
+            if (hovered == null || !_tips.TryGetValue(hovered, out string tip)) return;
+            _tipContent.text = tip;
+            GUIStyle style = HighLogic.Skin.box;
+            Vector2 size = style.CalcSize(_tipContent);
+            Vector2 m = Input.mousePosition;
+            float x = Mathf.Min(m.x + 16f, Screen.width - size.x - 4f);
+            float y = Mathf.Min(Screen.height - m.y + 16f, Screen.height - size.y - 4f);
+            GUI.Box(new Rect(x, y, size.x + 8f, size.y + 4f), _tipContent, style);
+        }
+
         public static void Clear()
         {
+            _tips.Clear();
             foreach (Part p in _tinted)
             {
                 if (p == null) continue;
