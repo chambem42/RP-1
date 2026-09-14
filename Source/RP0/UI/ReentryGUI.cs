@@ -431,7 +431,7 @@ namespace RP0
                 _summary = $"Predicted (Pe {sp.SimOrbitPe / 1000:N0} km, entry {v0:N0} m/s at {fpa:N2}°, AoA {aoa:N0}° {(_attitude == 0 ? "shield first" : "nose first")}): {Describe(r.Outcome)} - " +
                            $"peak skin {r.PeakSkin:N0} K ({r.PeakSkinFrac * 100:N0}%) on {r.LimitingPart}, {r.PeakG:N1} g, {r.Duration:N0} s.\n" +
                            $"Wrote {trace.Count} rows to {System.IO.Path.GetFileName(path)} (+ .parts.csv)" + (factory.TrimSummary.Length > 0 ? $"\n{factory.TrimSummary}" : "") +
-                           "\nParts carry the flight thermal highlight at their peak (red from 40% of the limit, orange at it); parts that went over it are red ghosts." +
+                           "\nParts carry the flight thermal highlight at their peak (red from 40% of the limit, orange at it); parts that went over it pulse red, shown through whatever hides them. Hover a part for its numbers." +
                            PartLimitsReport(att);
                 ReentryHeatHighlight.Apply(att);
             }

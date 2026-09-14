@@ -54,7 +54,10 @@ namespace RP0
                 _tw.OnGUI();
             // The reentry tint's part tooltip outlives the window: the tint stays on the craft until it is edited.
             if (HighLogic.LoadedSceneIsEditor && ReentryHeatHighlight.Active)
+            {
+                if (Event.current.type == EventType.Repaint) ReentryHeatHighlight.Refresh();
                 ReentryHeatHighlight.DrawHoverTooltip();
+            }
         }
 
         public void HideIfShowing()
