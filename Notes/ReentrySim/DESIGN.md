@@ -444,6 +444,60 @@ AoA, 4x physics warp, `Reentry_Predict` + `Reentry_Fly`, see `KSPUITest/Source/T
   every part's projected area scaled by ~sqrt(2) for the rest of the flight - the voxel frame and
   the meshes are sampled at different attitudes. Stage, let it settle, then manoeuvre.
 
+### 7.2 The capsule (Mk1-3 Test: Mk1-3 pod on a ROHeatshields Mercury-class shield, Sept 2026)
+
+Flown shield first, 0 deg AoA, from a 250 x 40 km orbit, starting at 120 km. Flight lost the
+shield to its *interior* limit at 46.8 km with the skin never past 84 %; the first prediction lost
+it to the skin (106 %) at 60 km and half a minute late. Three things were wrong, none of them in
+the thermal chain:
+
+- **FAR's editor sim folded every angle into +-90 deg.** `InstantConditionSim.GetClCdCmSteady`
+  took `cosAlpha = sqrt(1 - sin^2)`, so alpha = 180 (a capsule behind its shield) was evaluated
+  nose first: half the drag (Cd 0.87 vs 1.8 flown). Signed cosines fix it, and flight drag now
+  agrees to 1-3 % from 118 km down. Every earlier "heat shield first" analysis was wrong for
+  this reason.
+- **The trajectory dragged the inertial velocity.** With the vehicle slowed to the ground's
+  speed the inertial velocity floor (1 m/s) left the airspeed at 465 m/s forever and the vehicle
+  hanging at 13 km. The integrator now carries (v_h, v_r) and applies drag along the airspeed
+  and lift across it; touchdown is called at airspeed < 120 m/s.
+- **A spent shield burns through.** Realism Overhaul's `HSClobberer` multiplies a part's
+  skin-internal conduction by 200 and skin-skin by 250 (over 5 s) once its ablator drops below
+  0.01 units - that is the 40 kW -> 7 MW jump in the flown skin-to-interior flux the moment
+  the ablator hit zero, and why the interior limit is what kills a Mercury shield flown too
+  hot. Read from `HS_CLOBBERER_SETTINGS` (with its `excludedParts`), off when Deadly Reentry
+  is installed, as RO does.
+
+With those: shield skin 1926 vs 1927 K at 60 km, ablator gone at 50 km both, interior over
+its limit at 45 km predicted vs 46.8 km flown; every altitude reached within 2 s once the
+30 s spawn lead is allowed for. The prediction's failure mode now matches the game's.
+
+---
+
+## 7.3 Where it lives now
+
+The analysis moved into the FAR fork (`FerramAerospaceResearch/Reentry/`, tab
+`FARGUI/FAREditorGUI/ReentryGUI.cs`, branch `feat/perf-envelope-heatmaps`): it is FAR-facing
+code, and there it calls `InstantConditionSim` directly instead of through reflection. RP-1
+keeps the KCT simulation dialog, the landing-site aim and the flight telemetry logger, and
+reaches the analysis through `FerramAerospaceResearch.Reentry.FARReentryAPI` by reflection
+(`ModIntegrations/FARReentryInterop.cs`): `ApplyPropellantLoad` (so the simulated vessel and
+the editor analysis fly the same landing weight), `TryPredictTouchdown` (the site aim), and a
+`SetupSimulation` delegate the tab's "Set up simulation" button calls into
+`KCT_GUI.PrefillReentrySim`. Without that FAR the dialog aims the periapsis and leaves the
+propellant alone, and says so in the log.
+
+The tab's "Analyse" is a heatmap: AoA columns x periapsis rows, swept on worker threads inside
+FAR's `BeginParallelSweep` (one FAR aero grid per AoA column, then the trajectories), coloured
+by lost-part count, mean or maximum peak-over-limit fraction, with a dark corner for cells over
+the g limit; hover for the numbers, click to load a cell into the single-entry prediction. The
+game side needed for a worker thread is sampled once on the main thread into
+`ReentryAtmosphere` (pressure/temperature/density/speed of sound by altitude, the stock
+pseudo-Reynolds and body-lift curves as Hermite copies, RealHeat's temperature rise and gamma by
+airspeed). A 6 x 12 grid on the capsule sweeps in about 2 s; the SSTO in about 1.5 s.
+
+Predicted traces go to `saves/<game>/FAR_Reentry/predicted_*.csv`; the flown ones stay in
+`saves/<game>/RP-1_ReentryLogs/`. Both parts logs now carry `ablationFlux,ablatorLeft`.
+
 ---
 
 ## 8. UI
