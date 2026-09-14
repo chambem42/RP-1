@@ -30,17 +30,16 @@ namespace RP0
         private double[] _peList, _aoaList;
         private string _summary = "";
 
-        /// <summary>The attitude the Predict button would fly, for the simulation dialog's landing-site aim.</summary>
-        public static double PredictAoA { get; private set; }
-        public static bool PredictShieldFirst { get; private set; }
-        private static bool _predictSeen;
+        /// <summary>Airspeed below which the touchdown prediction flies at 0 deg AoA: the final approach, not the entry.</summary>
+        public const double ApproachSpeed = 1000.0;
 
         /// <summary>
-        /// Fly the simulation's Reentry setup through the solver at the tab's AoA and report where it touches down:
-        /// the in-plane angle past periapsis and the time after the entry interface. False (with a reason) when
-        /// the analysis cannot run; the aim then falls back to the periapsis.
+        /// Fly the simulation's Reentry setup through the solver at the given attitude and report where it touches
+        /// down: the in-plane angle past periapsis and the time after the starting altitude. Below ApproachSpeed the
+        /// AoA drops to 0 for the approach. False (with a reason) when the analysis cannot run; the aim then falls
+        /// back to the periapsis.
         /// </summary>
-        public static bool TryPredictTouchdown(SimulationParams sp, out double angleFromPeDeg, out double secondsFromInterface, out double downrangeKm, out string error)
+        public static bool TryPredictTouchdown(SimulationParams sp, double aoaDeg, bool shieldFirst, out double angleFromPeDeg, out double secondsFromInterface, out double downrangeKm, out string error)
         {
             angleFromPeDeg = secondsFromInterface = downrangeKm = double.NaN;
             error = null;
@@ -52,8 +51,12 @@ namespace RP0
                 if (FarEditorAero.Available && !FarEditorAero.Ready) { error = "FAR is still voxelizing the craft"; return false; }
                 var k = ReentryConstants.FromGame(body);
                 var solver = new ReentrySolver(body, k);
-                bool shieldFirst = _predictSeen ? PredictShieldFirst : DefaultAttitude(parts) == 0;
-                ReentryAttitude att = ReentryVesselBuilder.Build(parts, body, k, PredictAoA, shieldFirst, new DefaultAeroFactory());
+                ReentryAttitude att = ReentryVesselBuilder.Build(parts, body, k, aoaDeg, shieldFirst, new DefaultAeroFactory());
+                if (aoaDeg != 0.0)
+                {
+                    solver.LowSpeedCutoff = ApproachSpeed;
+                    solver.LowSpeedAero = ReentryVesselBuilder.Build(parts, body, k, 0.0, shieldFirst, new DefaultAeroFactory()).Aero;
+                }
                 if (!solver.TryEntryState(sp.SimOrbitPe, sp.SimReentryArrival, sp.SimOrbitAp, sp.SimEntrySpeed, sp.SimEntryAltitude,
                                           out double v0, out double fpa, out error))
                     return false;
@@ -137,9 +140,6 @@ namespace RP0
             GUILayout.EndHorizontal();
 
             _attitude = GUILayout.SelectionGrid(_attitude, _attitudeLabels, 2);
-            PredictShieldFirst = _attitude == 0;
-            _predictSeen = true;
-            PredictAoA = ParseOr(_sPredictAoA, 0.0);
 
             GUILayout.BeginHorizontal();
             GUILayout.Label(new GUIContent("g limit:", "Peak deceleration allowed. Blank = 12 g crewed, 30 g uncrewed."), GUILayout.Width(150));

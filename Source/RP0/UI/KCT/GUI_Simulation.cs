@@ -16,7 +16,7 @@ namespace RP0
 
         private static string _sOrbitAlt = "", _sOrbitPe = "", _sOrbitAp = "", _sOrbitInc = "", _sOrbitLAN = "", _sOrbitMNA = "", _sOrbitArgPe = "", _UTString = "", _sDelay = "0";
         private static string _sHypInsertionDV = "", _sHypPeAlt = "", _sHypTimeToPe = "", _sHypTransferTime = "", _sAutostageTarget = "";
-        private static string _sEntryAlt = "", _sEntrySpeed = "", _sEntryLeadTime = "30", _sPropellantPct = "";
+        private static string _sEntryAlt = "", _sEntrySpeed = "", _sEntryLeadTime = "30", _sPropellantPct = "", _sReentryAoA = "";
         private static List<ReentrySite> _reentrySites;
         private static bool _showSiteList;
         private static Vector2 _siteListScroll;
@@ -368,7 +368,7 @@ namespace RP0
             GUILayout.EndHorizontal();
 
             GUILayout.BeginHorizontal();
-            GUILayout.Label(new GUIContent("Entry interface (km): ", "Altitude the vessel is dropped onto, on the inbound leg. Defaults to the top of the atmosphere."));
+            GUILayout.Label(new GUIContent("Starting altitude (km): ", "Altitude the vessel is dropped onto, on the inbound leg. Defaults to the top of the atmosphere."));
             _sEntryAlt = GUILayout.TextField(_sEntryAlt, GUILayout.Width(80));
             GUILayout.EndHorizontal();
 
@@ -454,6 +454,7 @@ namespace RP0
             if (string.IsNullOrEmpty(_sEntryAlt)) _sEntryAlt = (simParams.SimEntryAltitude / 1000d).ToString("F0");
             _sEntryLeadTime = simParams.SimEntryLeadTime.ToString("F0");
             if (string.IsNullOrEmpty(_sPropellantPct) && simParams.SimPropellantPercent >= 0d) _sPropellantPct = simParams.SimPropellantPercent.ToString("F0");
+            if (string.IsNullOrEmpty(_sReentryAoA) && simParams.SimReentryAoA != 0d) _sReentryAoA = simParams.SimReentryAoA.ToString("F0");
         }
 
         // Landing-site aim: a dropdown of the home body's sites plus the pass direction. With a site chosen the
@@ -495,6 +496,10 @@ namespace RP0
             {
                 int pass = GUILayout.SelectionGrid(simParams.SimReentryDescending ? 1 : 0, _reentryPassLabels, 2);
                 simParams.SimReentryDescending = pass == 1;
+                GUILayout.BeginHorizontal();
+                GUILayout.Label(new GUIContent("Entry AoA (deg): ", $"Angle of attack you will hold through the entry. The touchdown that gets put over the site is predicted at this angle, dropping to 0 below {ReentryGUI.ApproachSpeed:N0} m/s for the approach. Blank = 0."));
+                _sReentryAoA = GUILayout.TextField(_sReentryAoA, GUILayout.Width(50));
+                GUILayout.EndHorizontal();
                 double lat = Math.Abs(simParams.SimReentrySiteLat);
                 if (double.TryParse(_sOrbitInc, out double inc) && (inc < lat - 0.01 || inc > 180d - lat + 0.01))
                     GUILayout.Label($"Inclination must be between {lat:F1} and {180d - lat:F1} deg to pass over {simParams.SimReentrySiteName}.");
@@ -792,14 +797,16 @@ namespace RP0
                     simParams.SimEntryLeadTime = leadTime;
                     simParams.SimPropellantPercent = double.TryParse(_sPropellantPct, out double propPct) && propPct >= 0d ? Math.Min(propPct, 100d) : -1d;
                     simParams.SimReentryAimAngleDeg = simParams.SimReentryAimSeconds = double.NaN;
+                    simParams.SimReentryAoA = double.TryParse(_sReentryAoA, out double reentryAoA) ? reentryAoA : 0d;
                     if (simParams.HasReentrySite)
                     {
                         // Aim the predicted touchdown at the site, not the periapsis: a lifting vehicle lands well past it.
-                        if (ReentryGUI.TryPredictTouchdown(simParams, out double aimAngle, out double aimSeconds, out double downrangeKm, out string aimProblem))
+                        bool shieldFirst = simParams.SimReentryAttitude == SimReentryAttitude.Retrograde;
+                        if (ReentryGUI.TryPredictTouchdown(simParams, simParams.SimReentryAoA, shieldFirst, out double aimAngle, out double aimSeconds, out double downrangeKm, out string aimProblem))
                         {
                             simParams.SimReentryAimAngleDeg = aimAngle;
                             simParams.SimReentryAimSeconds = leadTime + aimSeconds;
-                            ScreenMessages.PostScreenMessage($"Aiming at {simParams.SimReentrySiteName}: predicted touchdown {downrangeKm:N0} km past the entry interface at {ReentryGUI.PredictAoA:N0} deg AoA", 8f, ScreenMessageStyle.UPPER_CENTER);
+                            ScreenMessages.PostScreenMessage($"Aiming at {simParams.SimReentrySiteName}: predicted touchdown {downrangeKm:N0} km past the starting point at {simParams.SimReentryAoA:N0} deg AoA", 8f, ScreenMessageStyle.UPPER_CENTER);
                         }
                         else
                         {

@@ -113,6 +113,9 @@ namespace RP0
         // the site. NaN = no analysis available; the periapsis is aimed instead.
         [Persistent]
         public double SimReentryAimAngleDeg = double.NaN, SimReentryAimSeconds = double.NaN;
+        // Angle of attack the pilot means to hold through the entry, for the touchdown prediction behind the site aim.
+        [Persistent]
+        public double SimReentryAoA;
 
         public void Reset()
         {

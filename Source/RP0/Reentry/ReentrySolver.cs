@@ -39,6 +39,14 @@ namespace RP0.Reentry
         /// <summary>Which heating model the solver is following, for the UI.</summary>
         public string ThermalModelDescription => _realHeat != null ? "RealHeat" : "stock";
 
+        /// <summary>
+        /// Below this airspeed the trajectory flies LowSpeedAero (an attitude built at 0 deg AoA) instead of the
+        /// analysed one: the entry angle is not what a vehicle lands at. NaN holds the analysed attitude down.
+        /// The thermal side keeps the analysed attitude - there is no heating to speak of below it.
+        /// </summary>
+        public double LowSpeedCutoff = double.NaN;
+        public IReentryAero LowSpeedAero;
+
         public ReentryResult Simulate(ReentryAttitude att, double entryAlt, double entrySpeed, double entryFpaDeg,
                                       bool liftDown, double startTemp = 293.15, List<ReentryTraceSample> trace = null,
                                       List<ReentryPartSample> partsTrace = null)
@@ -75,7 +83,9 @@ namespace RP0.Reentry
 
                 double pseudoRe = density * vAir;
                 double pseudoReDragMult = density > 0.0 ? PhysicsGlobals.DragCurvePseudoReynolds.Evaluate((float)pseudoRe) : 1.0;
-                att.Aero.Forces(q, mach, alt, pseudoReDragMult, out double dragKN, out double liftKN);
+                IReentryAero aero = LowSpeedAero != null && !double.IsNaN(LowSpeedCutoff) && vAir < LowSpeedCutoff ? LowSpeedAero : att.Aero;
+                aero.Forces(q, mach, alt, pseudoReDragMult, out double dragKN, out double liftKN);
+                _activeAero = aero;
                 double aDrag = dragKN / att.MassT;
                 double aLift = liftSign * liftKN / att.MassT;
 
@@ -390,6 +400,7 @@ namespace RP0.Reentry
         }
 
         private double _lastExtT, _lastConvCoeff, _lastBrtExposed;
+        private IReentryAero _activeAero;
 
         // A trace row for the part closest to its limit, mirroring ReentryTelemetryLogger.FindHottestPart.
         private ReentryTraceSample Sample(ReentryAttitude att, double t, double alt, double vAir, double mach, double density,
@@ -408,7 +419,9 @@ namespace RP0.Reentry
                 Time = t, Altitude = alt, Airspeed = vAir, Mach = mach, Density = density, DynPresKPa = q, GeeForce = gees,
                 AtmosphericTemperature = ambientT, ExternalTemperature = _lastExtT, ConvectiveCoefficient = _lastConvCoeff,
                 Part = hot != null ? (hot.Part != null && hot.Part.partInfo != null ? hot.Part.partInfo.name : hot.Name) : "",
-                AoA = double.IsNaN(att.Aero.LastAoA) ? att.AoADeg : att.Aero.LastAoA, RefArea = att.Aero.ReferenceArea, BackgroundTempExposed = _lastBrtExposed, TrimPitch = att.Aero.LastTrimPitch,
+                AoA = _activeAero != att.Aero ? (double.IsNaN(_activeAero.LastAoA) ? 0.0 : _activeAero.LastAoA)
+                    : (double.IsNaN(att.Aero.LastAoA) ? att.AoADeg : att.Aero.LastAoA),
+                RefArea = att.Aero.ReferenceArea, BackgroundTempExposed = _lastBrtExposed, TrimPitch = (_activeAero ?? att.Aero).LastTrimPitch,
                 Cl = q > 0.0 ? liftKN / (q * att.Aero.ReferenceArea) : 0.0,
                 Cd = q > 0.0 ? dragKN / (q * att.Aero.ReferenceArea) : 0.0,
                 Sideslip = 0.0, LiftKN = liftKN, DragKN = dragKN, SideKN = 0.0,
