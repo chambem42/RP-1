@@ -479,7 +479,7 @@ namespace RP0
             if (_reentrySites == null) _reentrySites = SimReentrySite.Collect();
             GUILayout.BeginHorizontal();
             GUILayout.Label(new GUIContent("Aim at: ", "Put the trajectory's periapsis over a landing site. The site moves with the planet while the vessel coasts in; that is accounted for."));
-            string current = simParams.HasReentrySite ? simParams.SimReentrySiteName : "(none: LAN and argument of periapsis as typed)";
+            string current = simParams.HasReentrySite ? simParams.SimReentrySiteName : "LAN/ArgPe/MeanAnomaly";
             if (GUILayout.Button(new GUIContent(current + (_showSiteList ? "  \u25B2" : "  \u25BC")), GUILayout.MinWidth(220)))
             {
                 _showSiteList = !_showSiteList;
@@ -489,7 +489,7 @@ namespace RP0
             if (_showSiteList)
             {
                 _siteListScroll = GUILayout.BeginScrollView(_siteListScroll, GUILayout.Height(Math.Min(200, 24 * (_reentrySites.Count + 2))));
-                if (GUILayout.Button("(none: LAN and argument of periapsis as typed)"))
+                if (GUILayout.Button(new GUIContent("LAN/ArgPe/MeanAnomaly", "No site: place the entry from the LAN, argument of periapsis and mean anomaly as typed.")))
                 {
                     simParams.SimReentrySiteName = "";
                     _showSiteList = false;
