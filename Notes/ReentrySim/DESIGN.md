@@ -498,6 +498,35 @@ airspeed). A 6 x 12 grid on the capsule sweeps in about 2 s; the SSTO in about 1
 Predicted traces go to `saves/<game>/FAR_Reentry/predicted_*.csv`; the flown ones stay in
 `saves/<game>/RP-1_ReentryLogs/`. Both parts logs now carry `ablationFlux,ablatorLeft`.
 
+### 7.4 The tuning loop (KSPUITest `Reentry_Borderline`, Sept 15)
+
+One game session per run: for each hardcoded scenario, open the craft, sweep the grid on FAR's
+Reentry tab, pick a cell (`near` / `lost` / `least` / `aoa:<deg>` / `pe:<km>`), predict it with its
+CSV, then fly exactly that entry in a KCT simulation with telemetry. Results so far, new SSTO Big at
+0 % propellant, Mk1-3 Test capsule:
+
+| scenario | cell | predicted | flown |
+|---|---|---|---|
+| capsule, free trim, descent mode off | Pe -40, trim 0 | shield 84 %, 7.7 g | 84.1 %, 7.6 g, trim 179.9 |
+| capsule, descent mode, AoA -10 column | offset limit 18 % solved | trims -12 at peak q; shield burns through | trims -6 at peak q (-15 at 90 km); burns through at 50 km |
+| SSTO, Pe 60 / AoA 30 | tank 89 / 81 %, 1.1 g | 89 / 81 %, 1.1 g |
+| SSTO, Pe 90 / AoA 25 | tank 94 % int; one RD-275 skin 108 % | tank 91 %; that engine 48 % |
+
+What the loop fixed: a capsule has no pitch control, so its columns now fly the trim angle
+(bracketed Cm root, +-60 deg) and RO's descent-mode CoM shifter is solved per AoA column - the
+offset limit that trims there - through a per-thread `InstantConditionSim.CoMOverride` (an analytic
+`-shift x force / MAC` correction was 15x too small and the wrong sign; ask the sim instead). The
+flight then runs with that limit set on the craft. Also: a free-trimming capsule cannot choose its
+roll, so those sweeps are roof-up only; cells are labelled by the roll to fly ("roof up / roof down")
+and where the lift actually pointed at peak q.
+
+Open: (1) the capsule's trim drifts with Mach differently in flight (-6 deg at peak q vs -12 in the
+editor at the same 18 % limit; both -15 at 90 km) - FAR's editor Cm slope vs the flight one at high
+Mach; (2) one SSTO engine gets a 0.8 % convection-area multiplier from the editor's occlusion
+cones at Mach 20-25 where flight gives exactly 0 (flight exposes it only near 50 km) - a
+geometric difference in the cone occlusion for that one part, not the interpolation (denser Mach
+samples and a 0.5 % floor did not change it).
+
 ---
 
 ## 8. UI
