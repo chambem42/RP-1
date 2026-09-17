@@ -89,11 +89,14 @@ def main():
     if not (os.path.exists(pp_path) and os.path.exists(fp_path)): return
     pp = load(pp_path); fp = [r for r in load(fp_path) if r['missionTime'] <= a.maxtime]
 
+    # logs written since 2026-09-15 carry the craft's part id; older ones pair by skin thermal mass (nearest)
+    by_id = 'partId' in pp[0] and 'partId' in fp[0] if pp and fp else False
+
     def instances(rows, name):
         keys = {}
         for r in rows:
             if r['part'] != name: continue
-            k = round(r['skinThermalMass'], 0)
+            k = int(r['partId']) if by_id else round(r['skinThermalMass'], 0)
             keys.setdefault(k, []).append(r)
         return keys
 
@@ -101,11 +104,15 @@ def main():
     for name in names:
         pi, fi = instances(pp, name), instances(fp, name)
         if not pi or not fi: continue
-        # pair instances by skin thermal mass (nearest)
         for kf, frows in sorted(fi.items()):
-            kp = min(pi.keys(), key=lambda k: abs(k - kf))
+            if by_id:
+                if kf not in pi: continue
+                kp = kf
+            else:
+                kp = min(pi.keys(), key=lambda k: abs(k - kf))
             prows = pi[kp]
-            print(f"\n== {name} (skinTM pred {kp:.0f} | flown {kf:.0f} kJ/K; TM {prows[0]['thermalMass']:.0f} | {frows[0]['thermalMass']:.0f}) ==")
+            ident = f"id {kf}" if by_id else f"skinTM pred {kp:.0f} | flown {kf:.0f} kJ/K"
+            print(f"\n== {name} ({ident}; TM {prows[0]['thermalMass']:.0f} | {frows[0]['thermalMass']:.0f}) ==")
             print(f"{'alt':>4} | {'skin K':>13} | {'skin%':>11} | {'int K':>13} | {'int%':>11} | {'s2i kW':>13} | {'conv kW':>15} | {'rad kW':>15} | {'expA':>13} | {'areaMult':>11}")
             for alt in alts:
                 # parts logs only carry the hottest few parts per sample, so a part can be absent for a

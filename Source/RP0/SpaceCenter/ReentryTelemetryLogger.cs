@@ -29,7 +29,8 @@ namespace RP0
             "part,skinTemperature,skinMaxTemp,temperature,maxTemp," +
             "exposedArea,radiativeArea,convectionFlux,radiationFlux,skinToInternalFlux," +
             "aoa,cl,cd,refArea,brtExposed,trimPitch," +
-            "sideslip,liftKN,dragKN,sideKN,wingLiftKN,wingDragKN,bank,pitchMomentKNm";
+            "sideslip,liftKN,dragKN,sideKN,wingLiftKN,wingDragKN,bank,pitchMomentKNm," +
+            "latitude,longitude,occlusionFrameDeg";
 
         // FAR's flight readouts, by reflection (FARAPI is public static). Optional: blank columns without FAR.
         private static bool _farResolved;
@@ -122,7 +123,9 @@ namespace RP0
             AeroForceBreakdown(v, out double lift, out double drag, out double side, out double wingLift, out double wingDrag);
             Append(sb, lift); Append(sb, drag); Append(sb, side); Append(sb, wingLift); Append(sb, wingDrag);
             Append(sb, BankAngle(v));
-            Append(sb, PitchMoment(v), last: true);
+            Append(sb, PitchMoment(v));
+            Append(sb, v.latitude); Append(sb, v.longitude);
+            Append(sb, OcclusionFrameAngle(v), last: true);
 
             try
             {
@@ -169,11 +172,18 @@ namespace RP0
         // multipliers, exposed/radiative areas, skin fraction) for the hottest few parts plus every engine,
         // so a per-part disagreement can be traced to a specific input rather than guessed at.
         private const int PartsHottest = 4;
+        /// <summary>
+        /// A part that has been within this fraction of a limit stays in the log for the rest of the flight, so its
+        /// peak is on record even after hotter parts push it out of the hottest few (a tank at 79 % of its skin
+        /// limit vanished from the log behind three burning engines and read as 69 % - its last logged row).
+        /// </summary>
+        private const double PartsKeepFrac = 0.5;
+        private readonly HashSet<Part> _partsKeep = new HashSet<Part>();
         public const string PartsHeaderLine =
             "ut,missionTime,altitude,part,skinTemperature,skinMaxTemp,temperature,maxTemp,skinUnexposedTemperature," +
             "exposedArea,radiativeArea,skinExposedAreaFrac,convTempMult,convCoeffMult,convAreaMult," +
             "convectionFlux,radiationFlux,skinToInternalFlux,skinThermalMass,thermalMass,heatConvectiveConstant,emissiveConstant,mass,resourceMass," +
-            "ablationFlux,ablatorLeft";
+            "ablationFlux,ablatorLeft,partId";
         private StreamWriter _partsWriter;
         private readonly List<Part> _partsPick = new List<Part>();
 
@@ -199,7 +209,10 @@ namespace RP0
             sorted.Sort((a, b) => Frac(b).CompareTo(Frac(a)));
             for (int i = 0; i < sorted.Count && _partsPick.Count < PartsHottest; ++i) _partsPick.Add(sorted[i]);
             foreach (Part p in v.parts)
-                if (!_partsPick.Contains(p) && (p.FindModuleImplementing<ModuleEngines>() != null || p.FindModuleImplementing<ModuleAblator>() != null)) _partsPick.Add(p);
+            {
+                if (Frac(p) >= PartsKeepFrac) _partsKeep.Add(p);
+                if (!_partsPick.Contains(p) && (_partsKeep.Contains(p) || p.FindModuleImplementing<ModuleEngines>() != null || p.FindModuleImplementing<ModuleAblator>() != null)) _partsPick.Add(p);
+            }
 
             var inv = CultureInfo.InvariantCulture;
             foreach (Part p in _partsPick)
@@ -229,7 +242,8 @@ namespace RP0
                     PartResource res = !string.IsNullOrEmpty(abl.ablativeResource) ? p.Resources.Get(abl.ablativeResource) : null;
                     if (res != null) ablLeft = res.amount;
                 }
-                Append(sb, ablFlux); Append(sb, ablLeft, last: true);
+                Append(sb, ablFlux); Append(sb, ablLeft);
+                sb.Append(p.persistentId.ToString(inv));   // the craft's part id, so the editor's parts log pairs exactly
                 _partsWriter.WriteLine(sb.ToString());
             }
         }
@@ -314,6 +328,25 @@ namespace RP0
                 return Vector3.Dot(torque, pitchUpAxis);
             }
             catch { return double.NaN; }
+        }
+
+        /// <summary>
+        /// The angle the vehicle's silhouette sits at in the frame stock's convection occlusion judges its rectangles
+        /// in: OcclusionData.Update projects through Quaternion.FromToRotation(velocity, Vector3.up) and reads the
+        /// x/z components, so this is the in-plane angle of the lateral axis in those coordinates, folded to 0..90
+        /// (the axis-aligned rectangles repeat every quarter turn for a box, and 0 means tight). FAR's vehicle-aligned
+        /// occlusion (when on) pins the equivalent angle to 0; this is what stock would have used.
+        /// </summary>
+        public static double OcclusionFrameAngle(Vessel v)
+        {
+            if (v?.ReferenceTransform == null || v.srfSpeed < 1) return double.NaN;
+            Vector3 vel = v.srf_velocity.normalized;
+            Vector3 lateral = Vector3.ProjectOnPlane(v.ReferenceTransform.right, vel);
+            if (lateral.sqrMagnitude < 1e-6) return double.NaN;
+            Vector3 f = Quaternion.FromToRotation(vel, Vector3.up) * lateral.normalized;
+            double deg = Math.Atan2(f.z, f.x) * 180.0 / Math.PI;
+            deg = Math.Abs(deg) % 180.0;
+            return deg > 90.0 ? 180.0 - deg : deg;
         }
 
         /// <summary>Bank: the roof's angle from local up, measured around the airspeed (0 = roof to the sky, 180 = inverted).</summary>

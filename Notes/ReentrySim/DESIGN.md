@@ -525,7 +525,133 @@ editor at the same 18 % limit; both -15 at 90 km) - FAR's editor Cm slope vs the
 Mach; (2) one SSTO engine gets a 0.8 % convection-area multiplier from the editor's occlusion
 cones at Mach 20-25 where flight gives exactly 0 (flight exposes it only near 50 km) - a
 geometric difference in the cone occlusion for that one part, not the interpolation (denser Mach
-samples and a 0.5 % floor did not change it).
+samples and a 0.5 % floor did not change it). *Item (2) is resolved in 7.5: it was the heading.*
+
+### 7.5 Stock occlusion depends on the heading flown (Sept 15)
+
+Taking the engine shroud off the SSTO (`Mk2 SSTO Big NoShroud.craft`) made item (2) large: the
+editor had three aft RD-275s 15-37 % exposed, constant with Mach, where the first flight had all ten
+shaded outright - and the next flight of the same cell lost three of them. The drag-cube dump
+(`KSPUITest Cubes.Dump`: cube sizes, centres, poses) showed editor and flight geometry identical;
+what differed was the frame.
+
+`OcclusionData.Update` projects each part's cube box along the velocity and takes the
+**axis-aligned** bounding rectangle in a plane whose axes come from
+`Quaternion.FromToRotation(velocity, Vector3.up)` - the *world* up, i.e. the polar axis. A part
+behind a detached-shock part is shaded by the fraction of its rectangle the front part's rectangle
+covers, and that is the only term that shades area (oblique cones have `occludeConvectionAreaMult`
+1), which is why the editor's number is flat with Mach. The rotation maps the vessel's lateral axis
+onto the velocity's world direction, which turns with the vessel's position round the planet, so
+the rectangles' AABBs inflate and deflate through the entry. A craft in the editor sits on the world
+axes: every rectangle tight, the least shading the model can give (0.40 for the aft-centre engine).
+
+Falsification run (`results/20260915-143843`, six flights of Pe 60 / AoA 40, `ignoreMaxTemp` on):
+
+| RD-275 | editor (worst roll) | inc 0, ArgPe 0 | ArgPe 90 | ArgPe 180 | inc 30 | inc 60 | inc 90 |
+|---|---|---|---|---|---|---|---|
+| aft centre, peak skin | 166 % | 133 | 123 | 107 | 146 | 164 | 125 |
+| aft centre, mean area mult 80-65 km | 0.40 | 0.26 | 0.24 | 0.17 | 0.31 | 0.25 | 0.10 |
+| three ring engines | ~90 % | 87 | 79-84 | 67-75 | 88 | 86-92 | 37 (cold) |
+| tank skin (control) | 66 % | 76 | 78 | 78 | 72 | 71 | 72 |
+
+What the analysis does now (`ReentryVesselBuilder`): a transcription of `Update` with the frame
+supplied (`UpdateRolled`), the occlusion evaluated at 12 rolls over a half turn, and each part takes
+its worst roll (all three multipliers from that roll); the least is kept, and parts over or near a
+limit say `N% exposed at the worst heading, M% at the best`. The sliver rule (under 3 % exposed
+taken as shaded) is gone: the outboard pair flew a steady 2 % and reached 90 % of their skin limit
+on it. The worst-roll figure landed on the worst flight (166 vs 164 %), so the verdict is
+calibrated, not just pessimistic; the spread is the model's real uncertainty and cannot be
+predicted better without knowing the longitude at peak heating.
+
+**Repeats of one orbit vary as much as orientations do.** Flying `inc 0, ArgPe 0` three times in one
+session gave 133 / 123 / 107 % - the values the run above had credited to ArgPe 0 / 90 / 180 - and a
+control run with the sim clock pinned (`simUT`) still gave 130 / 86 on two repeats, 51 / 91 on two
+more. The angle stock's test ends up with is not a function of the orbit or the clock; whatever sets
+it at spawn is effectively random per sim. So the roll sampling could only ever bound it.
+
+Measured directly (`results/20260915-223513`; the telemetry now logs `latitude`, `longitude` and
+`occlusionFrameDeg`, the lateral axis's angle in stock's projection coordinates folded to 0-90):
+three replicates of one orbit had identical longitude (60.8 -> 119.1 deg over the entry) and bank,
+but frame angles of 71, 1 and 74 deg at 100 km, each then turning by the same 58 deg the longitude
+turned - the world axes are inertial through the entry and their azimuth about the polar axis is
+re-seeded at each flight-scene load by nothing the orbit, the clock or the vessel controls. The
+aft engine's area multiplier followed the angle exactly: ~0.38 within a few degrees of 0 or 90
+(the box is tight in either), nil beyond ~25 deg off. The replicate that passed through 90 deg at
+85 km peaked at 131 %; the one that never came near alignment stayed cold.
+
+Tracked to its source (`results/20260915-225741`, `frame.*` records): the offset is the planet's
+azimuth in world coordinates, `CelestialBody.directRotAngle`, which `CBUpdate` freezes when
+`OrbitPhysicsManager` switches the frame to rotating at flight-scene load (the entry is below RSS's
+inverse-rotation threshold throughout) and which stepped 100.2 -> 207.5 -> 314.7 deg across three
+sims with identical pad clock, sim clock and `rotationAngle`. The KCT sim jumps the clock (the
+save's 2057739170 -> 2019800000) while the frame is rotating, `Planetarium.InverseRotAngle` absorbs
+the jump, the revert brings the save's clock back but not the Planetarium state, and the editor's
+inertial pass recomputes `directRotAngle = rotationAngle(pad) - InverseRotAngle(sim)`: the
+planet's world azimuth shifts by Earth's rotation over the 37.9 Ms gap (0.30 turn, 107 deg) once
+per sim. Deterministic per sim ordinal - replicate N repeats replicate N of another session to
+0.3 % - which is what the earlier "ArgPe" and "inclination" spreads really were. Outside the sim
+there is no jump, but `directRotAngle` still freezes at the launch time of day, so in normal play
+the same entry heats differently depending on when it was launched. The vehicle-aligned frame
+removes the dependence in both cases.
+
+What the mechanism means in general: a clock jump absorbed in a *rotating* scene (loading a save
+from the menu into the KSC, a quickload in flight, revert to launch) is harmless - it lands in
+`InverseRotAngle` where it belongs - and in a fresh session `directRotAngle` is simply the body's
+`initialRotation` (the main menu is inertial at UT 0), for every save and launch time. A jump
+that lands in an *inertial* scene - revert to the editor after a flight, in stock, and the KCT sim's
+revert - shifts the planet's world azimuth by the rotation over the jump, cumulatively.
+
+The fix went to KSPCommunityFixes as `WorldFrameDrift`
+([KSPModdingLibs/KSPCommunityFixes#435](https://github.com/KSPModdingLibs/KSPCommunityFixes/pull/435)):
+a postfix on `PSystemSetup.OnSceneChange`, stock's own scene-load-requested handler, re-derives
+`directRotAngle` from the clock for every body and zeroes `Planetarium.InverseRotAngle`, so the
+frame is a function of the current UT alone at every scene entry (three sim replicates: 327.152
+deg each = `rotationAngle(padUT)` exactly; before, 100 -> 207 -> 315; on a stock install, three
+launch / warp 2 h / revert-to-SPH cycles gave 38.845 x3 where stock drifted 100 -> 70 -> 39). An
+RP-1 Harmony copy of the same postfix and an earlier sim-only restore (`PreSimInverseRotAngle`)
+were both dropped in its favour - RP-1 depends on KSPCF anyway. The companion
+`OcclusionVehicleFrame` ([#436](https://github.com/KSPModdingLibs/KSPCommunityFixes/pull/436))
+does the vehicle-frame occlusion below for stock's `OcclusionData.Update` and for KSPCF's own
+`FlightIntegratorPerf` reimplementation of the three passes (with FAR's fix off: 170.1 / 169.7 /
+176.4 % for inc 0 ArgPe 0 / inc 0 ArgPe 45 / inc 60); if it lands, FAR's `ConvectionOcclusion` is
+redundant in flight and only the editor-side frame is still needed. With the frame pinned the
+orientation sweep in the world frame is clean (`results/20260915-232137`, with the sim-only
+restore; the general patch gives the same repeatability):
+
+| orbit | frame angle at 85 km | aft engine | hottest part |
+|---|---|---|---|
+| inc 0, ArgPe 0 / 90 / 180 | 89 / 1 / 89 deg | 131 / 130 / 130 % | the aft engine |
+| inc 30 | 66 deg | 52 % | outboard engine 97 % |
+| inc 60 | 46 deg | 37 % (cold) | outboard engine 99 % |
+| inc 90 | 27 deg | 43 % | outboard engine 103 % |
+
+ArgPe 90 and 180 are equivalent to 0 for the rectangle test (a box's AABB repeats every quarter
+turn and the angle is longitude + constant), which is why the entry longitude never seemed to
+matter; ArgPe 45 would. At inc 90 the angle hardly drifts (the track moves in latitude). The
+vehicle-aligned frame gave 168 % at every inc-0 orientation and 175 % at inc 60 (airspeed).
+
+**The fix (`FARAeroComponents/ConvectionOcclusion.cs`):** FAR registers an
+`UpdateOcclusion` override with ModularFlightIntegrator, lets stock run its pass, then redoes the
+convection occlusion in a frame fixed to the vehicle - x along `ReferenceTransform.right` projected
+across the airflow, y along the airflow - with the same `OcclusionData`/`OcclusionCone` objects and
+arithmetic. `FARSettings.VehicleAlignedOcclusion` (`vehicleAlignedOcclusion` in `FARConfig.cfg`,
+default true) switches it; the editor uses the same frame and a single pass when it is on, the
+roll sampling when it is off. Verification, six flights of the cell above at a fixed UT
+(`results/20260915-203126`): aft-centre engine 168.3 / 168.2 / 168.3 / 168.3 % (inc 0, two ArgPe,
+two repeats each) against the editor's 166 %; every engine within 2-4 points of the editor. inc 60
+ran 5-7 points hotter on every engine and the ring ones alike - the inclined pass has ~200 m/s
+more airspeed at a given altitude (less of the planet's rotation in its favour), an environment
+effect the editor's entry speed does not yet take from the inclination. The same six flights with
+the setting off (`results/20260915-210939`): 130 / 86 / 51 / 91 / 40 / 37.
+
+Other things the loop settled the same day: both parts logs carry `partId` (`Part.persistentId`,
+kept from editor to flight) and `compare_traces.py` pairs on it - pairing by skin thermal mass had
+scrambled the engines, whose FAR areas change as the flight re-voxelizes; the KCT sim starts at
+105 km (nothing happens above it); RCS is switched on directly (`ModuleRCS.rcsEnabled`) rather than
+by staging; the "Ignore Max Temperature" and "Infinite Propellant" cheats are on for the tuning
+flights (the log shows how far over a limit a part goes - the editor's solver keeps lost parts too -
+and the RCS does not run dry at 16x physics warp, which the harness now sets by extending the
+physics-warp table itself), with `firstOverLimitAltKm` in place of the loss altitude.
 
 ---
 
