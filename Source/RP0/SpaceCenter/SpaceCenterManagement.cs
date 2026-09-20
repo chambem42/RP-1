@@ -1379,9 +1379,20 @@ namespace RP0
         // entry interface. The conic comes from periapsis + apoapsis or periapsis + entry speed; see SimReentryUtils.
         private static void SetReentrySimOrbit(SimulationParams simParams, CelestialBody body, double inc, double lan)
         {
-            if (!SimReentryUtils.TryComputeEntry(body, simParams.SimOrbitPe, simParams.SimReentryArrival, simParams.SimOrbitAp,
-                                                 simParams.SimEntrySpeed, simParams.SimEntryAltitude, simParams.SimEntryLeadTime,
-                                                 out SimReentryUtils.EntryState entry, out string error))
+            // With a predicted state at the start altitude (the entry analysis flew the leg above it), the spawn
+            // conic goes through that state and the site aim is measured from the start crossing.
+            bool fromState = !double.IsNaN(simParams.SimEntryStateSpeed) && !double.IsNaN(simParams.SimEntryStateFpaDeg);
+            SimReentryUtils.EntryState entry;
+            string error;
+            bool built = fromState
+                ? SimReentryUtils.TryComputeEntryFromState(body, simParams.SimEntryAltitude, simParams.SimEntryStateSpeed, simParams.SimEntryStateFpaDeg,
+                                                            simParams.SimEntryLeadTime, out entry, out error)
+                : SimReentryUtils.TryComputeEntry(body, simParams.SimOrbitPe, simParams.SimReentryArrival, simParams.SimOrbitAp,
+                                                   simParams.SimEntrySpeed, simParams.SimEntryAltitude, simParams.SimEntryLeadTime,
+                                                   out entry, out error);
+            double aimAngleDeg = simParams.SimReentryAimAngleDeg;
+            if (built && fromState && !double.IsNaN(aimAngleDeg)) aimAngleDeg += entry.TrueAnomalyAtEntry * 180d / Math.PI;
+            if (!built)
             {
                 // StartSim validated the same inputs, so this only fires if the persisted params were edited by hand.
                 RP0Debug.LogError($"Could not build reentry trajectory: {error}");
@@ -1394,7 +1405,7 @@ namespace RP0
             {
                 var site = new ReentrySite { Name = simParams.SimReentrySiteName, Latitude = simParams.SimReentrySiteLat, Longitude = simParams.SimReentrySiteLon };
                 if (!SimReentrySite.TryOrient(body, site, inc, simParams.SimReentryDescending, entry.SMA, entry.Ecc, entry.MeanAnomaly,
-                                              Planetarium.GetUniversalTime(), simParams.SimReentryAimAngleDeg, simParams.SimReentryAimSeconds,
+                                              Planetarium.GetUniversalTime(), aimAngleDeg, simParams.SimReentryAimSeconds,
                                               out lan, out argPe, out double tToPe, out double heading, out string siteError))
                 {
                     RP0Debug.LogError($"Could not aim reentry at {site.Name}: {siteError}");
@@ -1408,7 +1419,7 @@ namespace RP0
                     : $"Periapsis over {site.Name} in {tToPe:N0} s (no touchdown prediction), heading {heading:N0} deg", 8f, ScreenMessageStyle.UPPER_CENTER);
             }
 
-            RP0Debug.Log($"Reentry: {body.bodyName} Pe={simParams.SimOrbitPe:F0}m sma={entry.SMA:F0} ecc={entry.Ecc:F4} " +
+            RP0Debug.Log($"Reentry: {body.bodyName} Pe={simParams.SimOrbitPe:F0}m {(fromState ? "spawn conic through the predicted start state, " : "")}sma={entry.SMA:F0} ecc={entry.Ecc:F4} " +
                          $"entry {entry.EntrySpeed:F0}m/s FPA={entry.EntryFPA:F2}deg at {simParams.SimEntryAltitude:F0}m, " +
                          $"spawn {entry.SpawnAltitude:F0}m MNA={entry.MeanAnomaly:F4} inc={inc:F2} LAN={lan:F1} argPe={argPe:F1}");
             FlightGlobals.fetch.SetShipOrbit(body.flightGlobalsIndex, entry.Ecc, entry.SMA, inc, lan, entry.MeanAnomaly, argPe, 0.0);

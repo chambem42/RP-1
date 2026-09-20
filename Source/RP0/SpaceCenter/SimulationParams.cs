@@ -113,6 +113,11 @@ namespace RP0
         // the site. NaN = no analysis available; the periapsis is aimed instead.
         [Persistent]
         public double SimReentryAimAngleDeg = double.NaN, SimReentryAimSeconds = double.NaN;
+        // The predicted inertial state at SimEntryAltitude once the leg above it has been flown (from the entry
+        // analysis, when the start is below the top of the atmosphere): the spawn conic goes through this instead of
+        // the arrival conic. NaN = spawn on the arrival conic.
+        [Persistent]
+        public double SimEntryStateSpeed = double.NaN, SimEntryStateFpaDeg = double.NaN;
         // Angle of attack the pilot means to hold through the entry, for the touchdown prediction behind the site aim.
         [Persistent]
         public double SimReentryAoA;

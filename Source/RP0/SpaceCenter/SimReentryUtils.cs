@@ -31,6 +31,8 @@ namespace RP0
             public double SpawnAltitude;
             /// <summary>Apoapsis altitude (m) for an elliptical arrival; NaN when hyperbolic.</summary>
             public double ApoapsisAltitude;
+            /// <summary>True anomaly (rad, negative inbound) at the entry altitude, for aims measured from it.</summary>
+            public double TrueAnomalyAtEntry;
             /// <summary>Hyperbolic excess speed (m/s); 0 when elliptical.</summary>
             public double VInf;
         }
@@ -144,6 +146,49 @@ namespace RP0
             state.SpawnAltitude = RadiusAtMeanAnomaly(spawnMeanAnomaly, sma, ecc) - radius;
             state.ApoapsisAltitude = ecc < 1d ? sma * (1d + ecc) - radius : double.NaN;
             state.VInf = sma < 0d ? Math.Sqrt(-mu / sma) : 0d;
+            return true;
+        }
+
+        /// <summary>
+        /// The conic through a state below the top of the atmosphere - the inertial speed (m/s) and flight path
+        /// angle (deg, negative down) at entryAlt (m) - spawning leadTime seconds before it. Used when the entry
+        /// analysis has flown the leg above the start altitude: the drag there leaves the vehicle slower and steeper
+        /// than the arrival conic says, and a simulation started on the conic would be optimistic.
+        /// </summary>
+        public static bool TryComputeEntryFromState(CelestialBody body, double entryAlt, double speed, double fpaDeg, double leadTime,
+                                                    out EntryState state, out string error)
+        {
+            state = new EntryState();
+            error = null;
+            if (body == null) { error = "No body selected."; return false; }
+            if (!(speed > 0d) || double.IsNaN(fpaDeg)) { error = "No entry state to spawn from."; return false; }
+            double mu = body.gravParameter;
+            double radius = body.Radius;
+            double re = radius + entryAlt;
+            double gamma = fpaDeg * Math.PI / 180d;
+            double energy = 0.5d * speed * speed - mu / re;
+            if (Math.Abs(energy) < 1e-9) energy = 1e-9;
+            double sma = -mu / (2d * energy);
+            double h = re * speed * Math.Cos(gamma);
+            double semiLatus = h * h / mu;
+            double ecc = Math.Sqrt(Math.Max(0d, 1d - semiLatus / sma));
+            double rp = sma * (1d - ecc);
+            if (rp <= 0d) { error = "The entry state dives into the centre of the body."; return false; }
+            double cosTa = ecc > 1e-9 ? (semiLatus / re - 1d) / ecc : 1d;
+            if (cosTa > 1d) cosTa = 1d; else if (cosTa < -1d) cosTa = -1d;
+            double trueAnomaly = fpaDeg < 0d ? -Math.Acos(cosTa) : Math.Acos(cosTa);
+            double meanAnomaly = MeanAnomalyFromTrueAnomaly(trueAnomaly, ecc);
+            double meanMotion = Math.Sqrt(mu / Math.Abs(sma * sma * sma));
+            double spawnMeanAnomaly = meanAnomaly - meanMotion * Math.Max(leadTime, 0d);
+            state.SMA = sma;
+            state.Ecc = ecc;
+            state.MeanAnomaly = spawnMeanAnomaly;
+            state.EntrySpeed = speed;
+            state.EntryFPA = fpaDeg;
+            state.SpawnAltitude = RadiusAtMeanAnomaly(spawnMeanAnomaly, sma, ecc) - radius;
+            state.ApoapsisAltitude = ecc < 1d ? sma * (1d + ecc) - radius : double.NaN;
+            state.VInf = sma < 0d ? Math.Sqrt(-mu / sma) : 0d;
+            state.TrueAnomalyAtEntry = trueAnomaly;
             return true;
         }
 

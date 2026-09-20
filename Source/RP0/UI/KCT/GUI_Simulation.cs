@@ -421,6 +421,14 @@ namespace RP0
         /// Hooked into FAR's Reentry tab ("Set up simulation"): fills the simulation's Reentry mode with the
         /// analysed entry so it can be flown for real.
         /// </summary>
+        /// <summary>The inclination the elliptical modes fly: the box, else (reentry to a site) the lowest inclination that reaches the site, else 0.</summary>
+        private static double ResolveInclination(SimulationParams simParams, bool isReentry)
+        {
+            if (isReentry && simParams.HasReentrySite && string.IsNullOrWhiteSpace(_sOrbitInc))
+                return Math.Abs(simParams.SimReentrySiteLat);
+            return double.TryParse(_sOrbitInc, out double inc) ? inc % 360 : 0;
+        }
+
         public static void PrefillReentrySim(double peAltM, bool arrivalIsApoapsis, double apAltM, double entrySpeed, bool shieldFirst, double aoaDeg, double propellantPct)
         {
             if (SpaceCenterManagement.Instance == null) return;
@@ -437,6 +445,8 @@ namespace RP0
             _sEntryAlt = "";   // re-defaults to the top of the atmosphere
             _sReentryAoA = aoaDeg.ToString("F0");
             _sPropellantPct = propellantPct >= 0d ? propellantPct.ToString("F0") : "";
+            double inc = FARReentryInterop.InclinationDeg;
+            if (!double.IsNaN(inc)) _sOrbitInc = inc.ToString("F1");
             GUIStates.ShowSimConfig = true;
             _simulationConfigPosition.height = 1;
             _centralWindowPosition.height = 1;
@@ -812,14 +822,41 @@ namespace RP0
                     simParams.SimEntryLeadTime = leadTime;
                     simParams.SimPropellantPercent = double.TryParse(_sPropellantPct, out double propPct) && propPct >= 0d ? Math.Min(propPct, 100d) : -1d;
                     simParams.SimReentryAimAngleDeg = simParams.SimReentryAimSeconds = double.NaN;
+                    simParams.SimEntryStateSpeed = simParams.SimEntryStateFpaDeg = double.NaN;
                     simParams.SimReentryAoA = double.TryParse(_sReentryAoA, out double reentryAoA) ? reentryAoA : 0d;
-                    if (simParams.HasReentrySite)
+                    bool shieldFirst = simParams.SimReentryAttitude == SimReentryAttitude.Retrograde;
+                    bool spawnFromState = false;
+                    if (entryAlt < body.atmosphereDepth)
+                    {
+                        // A start below the top of the atmosphere skips the drag above it (20 m/s and half a degree
+                        // of flight path by 105 km on Earth): spawn with the state the analysis says the vehicle has
+                        // there after flying the whole entry, and aim the site from that crossing.
+                        if (FARReentryInterop.TryPredictFromTop(body, simParams.SimOrbitPe, simParams.SimReentryArrival == SimReentryArrival.Apoapsis,
+                                                                simParams.SimOrbitAp, simParams.SimEntrySpeed, ResolveInclination(simParams, isReentry: true),
+                                                                simParams.SimReentryAoA, shieldFirst, entryAlt,
+                                                                out double stateSpeed, out double stateFpa, out double aimAngleFromStart, out double aimSecondsFromStart, out string stateProblem))
+                        {
+                            simParams.SimEntryStateSpeed = stateSpeed;
+                            simParams.SimEntryStateFpaDeg = stateFpa;
+                            spawnFromState = true;
+                            if (simParams.HasReentrySite && !double.IsNaN(aimAngleFromStart) && !double.IsNaN(aimSecondsFromStart))
+                            {
+                                // Angle from the start crossing; SetReentrySimOrbit adds the crossing's true anomaly on the spawn conic.
+                                simParams.SimReentryAimAngleDeg = aimAngleFromStart;
+                                simParams.SimReentryAimSeconds = leadTime + aimSecondsFromStart;
+                                ScreenMessages.PostScreenMessage($"Aiming at {simParams.SimReentrySiteName}: predicted touchdown {aimAngleFromStart * Math.PI / 180d * body.Radius / 1000d:N0} km past the starting point at {simParams.SimReentryAoA:N0} deg AoA", 8f, ScreenMessageStyle.UPPER_CENTER);
+                            }
+                            ScreenMessages.PostScreenMessage($"Starting at {entryAlt / 1000d:N0} km with the flown-from-{body.atmosphereDepth / 1000d:N0}-km state: {stateSpeed:N0} m/s at {stateFpa:N2} deg", 6f, ScreenMessageStyle.UPPER_CENTER);
+                        }
+                        else
+                            RP0Debug.Log($"No start-state prediction ({stateProblem}); spawning on the arrival conic", true);
+                    }
+                    if (simParams.HasReentrySite && !spawnFromState)
                     {
                         // Aim the predicted touchdown at the site, not the periapsis: a lifting vehicle lands well past it.
-                        bool shieldFirst = simParams.SimReentryAttitude == SimReentryAttitude.Retrograde;
                         if (FARReentryInterop.TryPredictTouchdown(simParams.SimulationBody ?? Planetarium.fetch.Home, simParams.SimOrbitPe,
                                                                   simParams.SimReentryArrival == SimReentryArrival.Apoapsis, simParams.SimOrbitAp, simParams.SimEntrySpeed,
-                                                                  simParams.SimEntryAltitude, simParams.SimReentryAoA, shieldFirst,
+                                                                  simParams.SimEntryAltitude, ResolveInclination(simParams, isReentry: true), simParams.SimReentryAoA, shieldFirst,
                                                                   out double aimAngle, out double aimSeconds, out double downrangeKm, out string aimProblem))
                         {
                             simParams.SimReentryAimAngleDeg = aimAngle;
@@ -871,12 +908,7 @@ namespace RP0
                 }
                 else
                 {
-                    if (isReentry && simParams.HasReentrySite && string.IsNullOrWhiteSpace(_sOrbitInc))
-                        simParams.SimInclination = Math.Abs(simParams.SimReentrySiteLat);   // the lowest inclination that reaches the site
-                    else if (!double.TryParse(_sOrbitInc, out simParams.SimInclination))
-                        simParams.SimInclination = 0;
-                    else
-                        simParams.SimInclination %= 360;
+                    simParams.SimInclination = ResolveInclination(simParams, isReentry);
 
                     if (string.IsNullOrWhiteSpace(_sOrbitLAN))
                         simParams.SimLAN = double.NaN;  // SetSimOrbit treats NaN as 0
