@@ -653,6 +653,93 @@ flights (the log shows how far over a limit a part goes - the editor's solver ke
 and the RCS does not run dry at 16x physics warp, which the harness now sets by extending the
 physics-warp table itself), with `firstOverLimitAltKm` in place of the loss altitude.
 
+### 7.6 Where the last few points went (Sept 17)
+
+With the shrouded set matching to 0.3-2.6 points on skin, the interior of the SSTO's main tank
+still ran 4-6 points hotter in flight than predicted on the hot cells, and the retrograde row 28
+points. A day of instrumentation accounted for all of it. In the order the pieces fell:
+
+**Inclination.** The solver subtracted the whole ground speed from the inertial velocity - a
+prograde equatorial entry. With inclination i the eastward air velocity's along-track component is
+rotation x radius x cos i, constant along the orbit (the cross-track part is under 1 % of the
+airspeed magnitude even at 90 deg and is dropped). `ReentrySolver.InclinationDeg`, an "Inclination
+(deg)" field on the tab, and the sim dialog passes its own. Retrograde: editor 166 -> 191 % against
+195 flown; inc 60: 172 against 177.
+
+**Voxel size.** FAR sizes its voxel grid from the vessel's bounding box (element =
+cbrt(volume / count)). In flight that box was 0.9 m deeper than in the editor: the retracted
+KSPWheel gear's mesh sits lower there, and deflected elevons add to it under load. A 9 % larger box
+is a 3 % coarser voxel and a 3 % larger projected area on every part - the tank's exposed area was
+2900 m2 in flight against the editor's 2692 from the first sample. `VehicleVoxel` now sizes the
+element from the bounds of the parts that are neither control surfaces nor wheels (the grid still
+covers everything). Editor and flight voxel face totals then agree to the square metre (2276 both).
+
+**Physics warp.** At 16x the stack joints jitter under load (the tank's front face read 49-61 m2
+against a steady 47.4 at 1x) and the AoA hold overshoots late in the entry: 2 points on the
+interior. 4x and 1x agree (111.4 vs 111.0); the harness runs 4x.
+
+**Sim start altitude.** The KCT sim started at 105 km on the arrival conic; the editor integrates
+from 140 km through 1000 s of 3-5 kN drag. At 105 km the sim was 22 m/s faster and descending
+5 m/s slower, spent 9 % longer between 95 and 55 km, and its interior integrated that. A start
+below the top of the atmosphere now spawns on the conic through the state the analysis predicts at
+that altitude (`FARReentryAPI.TryPredictFromTop`, `SimReentryUtils.TryComputeEntryFromState`),
+with the site aim measured from that crossing; the 105 km start then reproduces the 140 km flight
+within 1 % down the whole entry and saves the coast.
+
+**Atmosphere.** The game's air temperature is the profile plus `temperatureSunMultCurve(alt)` times
+a latitude / time-of-day / season offset (`CelestialBody.GetAtmoThermalStats`), and RSS Earth's
+curve is -0.43 at 73-75 km: a noon entry (offset ~21 K) meets air 9 K colder and 4 % denser there.
+`ReentryAtmosphere` samples `GetFullTemperature` with the same formula at a representative state
+(latitude 0, mid day, +16.4 K); the flight logs its offset and the replay can use it.
+
+**The thermal model itself is right.** A replay mode (`ReentrySolver.Replay`, test
+`Reentry_Replay`) drives the thermal model along the flown altitude/airspeed history. On the
+flight's own trajectory it reproduces the flight to a point: tank interior 110 / 110 %, engine
+skin 119 / 119 %, per-altitude temperatures within a few K, fluxes within 1-3 %. Part-to-part
+conduction, which the solver omits, is a 2 % loss for the tank (it feeds the cargo bay). Everything
+left was the trajectory.
+
+**The trajectory error was the trim.** The same replay evaluates the editor aero at the flown
+state: lift within 1 %, drag 6-9 % high, all of it in the elevons, which the editor deflected 12.8
+deg to hold 20 deg where the flight used 8.6 (RCS off; 6 with RCS on). Same input-to-deflection
+mapping (logged both sides), same wing coefficients per degree. Per-part pitching moments about the
+CoM, logged both sides with the editor's surfaces set to the flight's angles, put every wing within
+a few percent (-392.4 vs -392.9 kN m at 70 km over ten surfaces) and the body 18 % high (+462 vs
++393). FAR's editor force context (`SimulatedForceContext.ApplyForce`) placed each voxel section's
+force at `centroidPartSpace - CoMOffset` where the flight's accumulation is equivalent to the force
+at `centroidPartSpace`: every body force shifted by the part's CoM offset, metres on a procedural
+Mk2 tank. Fixed (this also skews FAR's own editor stability analysis for any part with a CoM
+offset). The body moment residual is +7 % after it, flat with altitude, not chased.
+
+Result on the aoa20 cell (4x, 105 km start on the predicted state): editor 120.8 / 106.8 % against
+122.1 / 108.5 flown - 1.3 and 1.7 points, from 3 and 4-6 at the start of the day. Dead ends worth
+not repeating: gear deployment (already retracted at spawn; its larger flight voxel faces are the
+mesh pose), a seam-exposure allowance on stack joints (the padded face has no weight, and at honest
+warp there is no seam growth), grid orientation (the flight voxelizes in the same frame), reaction
+wheels (the flight's aero moments sum to zero at trim).
+
+The full set, re-flown with everything in (4x, 105 km start on the predicted state, RCS on;
+`results/20260917-172227` and `-175305`):
+
+| scenario | cell | editor skin / int % | flown skin / int % | gap |
+|---|---|---|---|---|
+| capsule-trim | Pe -40, trim | 84.0 / 67.0 | 84.1 / 67.0 | -0.1 / 0.0 |
+| capsule-descent | Pe -40, AoA -9 | 81.0 / 193.6 | 80.7 / 237.6 | +0.3 / -44 (both far past destruction) |
+| ssto-near | Pe 60 / 28 | 90.3 / 87.7 | 91.2 / 88.5 | -0.9 / -0.8 |
+| ssto-lost | Pe 92 / 27 | 105.1 / 91.0 | 105.8 / 92.1 | -0.7 / -1.1 |
+| ssto-aoa20 | Pe 87 / 20 | 120.8 / 106.8 | 122.2 / 108.6 | -1.4 / -1.8 |
+| ssto-aoa30 | Pe 60 / 31 | 88.8 / 80.8 | 89.6 / 81.3 | -0.8 / -0.5 |
+| ssto-aoa40 | Pe 100 / 40 | 85.0 / 79.9 | 85.4 / 74.0 | -0.4 / +5.9 (pre-existing, safe side) |
+| ssto-aoa30-noshroud | Pe 100 / 31 | 169.5 / 170.1 | 171.9 / 173.3 | -2.4 / -3.2 |
+| ssto-aoa40-noshroud | Pe 60 / 40 | 158.3 / 161.6 | 160.3 / 164.1 | -2.0 / -2.5 |
+| heading-inc60 | Pe 60 / 40 | 164.8 / 167.2 | 167.1 / 170.1 | -2.3 / -2.9 |
+| heading-inc180 | Pe 60 / 40 | 183.8 / 183.1 | 185.9 / 185.9 | -2.1 / -2.8 |
+
+The capsule at a trim angle is exact; the descent-mode row is a Pe -40 km dive flown past
+destruction with the temperature limit ignored, where neither side is making a survivable claim.
+The aoa40 interior is the one cell the editor over-predicts, as it did before any of this, on the
+safe side and 20 points under the limit.
+
 ---
 
 ## 8. UI

@@ -30,7 +30,12 @@ namespace RP0
             "exposedArea,radiativeArea,convectionFlux,radiationFlux,skinToInternalFlux," +
             "aoa,cl,cd,refArea,brtExposed,trimPitch," +
             "sideslip,liftKN,dragKN,sideKN,wingLiftKN,wingDragKN,bank,pitchMomentKNm," +
-            "latitude,longitude,occlusionFrameDeg";
+            "latitude,longitude,occlusionFrameDeg,atmoTempOffset," +
+            // the vessel's centre of mass in the root part's frame, to compare with the editor's
+            "comLocalX,comLocalY,comLocalZ," +
+            // FAR's pitching moment about the vessel CoM (kN m, nose-up positive) from the wing modules (force at each
+            // wing's aerodynamic centre) and from the voxel body parts (force at each part's CoM plus its torque)
+            "wingCmKNm,bodyCmKNm";
 
         // FAR's flight readouts, by reflection (FARAPI is public static). Optional: blank columns without FAR.
         private static bool _farResolved;
@@ -125,7 +130,13 @@ namespace RP0
             Append(sb, BankAngle(v));
             Append(sb, PitchMoment(v));
             Append(sb, v.latitude); Append(sb, v.longitude);
-            Append(sb, OcclusionFrameAngle(v), last: true);
+            Append(sb, OcclusionFrameAngle(v));
+            // the latitude / time-of-day / season term the game adds to the atmosphere temperature (sunMultCurve(alt) x this)
+            Append(sb, fi != null ? fi.atmosphereTemperatureOffset : double.NaN);
+            Vector3 comLocal = v.rootPart != null ? v.rootPart.partTransform.InverseTransformPoint(v.CoM) : new Vector3(float.NaN, float.NaN, float.NaN);
+            Append(sb, comLocal.x); Append(sb, comLocal.y); Append(sb, comLocal.z);
+            AeroMoments(v, out double wingCm, out double bodyCm);
+            Append(sb, wingCm); Append(sb, bodyCm, last: true);
 
             try
             {
@@ -183,7 +194,18 @@ namespace RP0
             "ut,missionTime,altitude,part,skinTemperature,skinMaxTemp,temperature,maxTemp,skinUnexposedTemperature," +
             "exposedArea,radiativeArea,skinExposedAreaFrac,convTempMult,convCoeffMult,convAreaMult," +
             "convectionFlux,radiationFlux,skinToInternalFlux,skinThermalMass,thermalMass,heatConvectiveConstant,emissiveConstant,mass,resourceMass," +
-            "ablationFlux,ablatorLeft,partId";
+            "ablationFlux,ablatorLeft,partId," +
+            // the drag-cube inputs ExposedArea is built from, to trace an editor/flight disagreement to its source
+            "mach,dirLocalX,dirLocalY,dirLocalZ,faceXP,faceXN,faceYP,faceYN,faceZP,faceZN,cubeExposedArea," +
+            // the interior's other heat paths, which the editor's solver does not model: conduction from attached
+            // parts, everything else into the interior (engines, core heat), and the skin's non-convective input
+            "conductionFlux,internalFlux,skinFlux," +
+            // FAR's per-wing coefficients and area (FARBaseAerodynamics.Cl/Cd/S), blank for a part that is not a wing
+            "wingCl,wingCd,wingS," +
+            // a control surface's deflection (deg), pitch lever arm and max deflection (FARControllableSurface)
+            "csDeflectDeg,csPitchLocation,csMaxDeflect," +
+            // the wing's own pitching moment about the vessel CoM (kN m, nose-up positive)
+            "wingMomentKNm";
         private StreamWriter _partsWriter;
         private readonly List<Part> _partsPick = new List<Part>();
 
@@ -211,7 +233,7 @@ namespace RP0
             foreach (Part p in v.parts)
             {
                 if (Frac(p) >= PartsKeepFrac) _partsKeep.Add(p);
-                if (!_partsPick.Contains(p) && (_partsKeep.Contains(p) || p.FindModuleImplementing<ModuleEngines>() != null || p.FindModuleImplementing<ModuleAblator>() != null)) _partsPick.Add(p);
+                if (!_partsPick.Contains(p) && (_partsKeep.Contains(p) || p.FindModuleImplementing<ModuleEngines>() != null || p.FindModuleImplementing<ModuleAblator>() != null || FarWing(p) != null)) _partsPick.Add(p);
             }
 
             var inv = CultureInfo.InvariantCulture;
@@ -243,7 +265,21 @@ namespace RP0
                     if (res != null) ablLeft = res.amount;
                 }
                 Append(sb, ablFlux); Append(sb, ablLeft);
-                sb.Append(p.persistentId.ToString(inv));   // the craft's part id, so the editor's parts log pairs exactly
+                sb.Append(p.persistentId.ToString(inv)).Append(',');   // the craft's part id, so the editor's parts log pairs exactly
+                Append(sb, v.mach);
+                Vector3 dl = p.dragVectorDirLocal;
+                Append(sb, dl.x); Append(sb, dl.y); Append(sb, dl.z);
+                float[] faces = p.DragCubes.AreaOccluded;
+                for (int f = 0; f < 6; ++f) Append(sb, faces != null && faces.Length > f ? faces[f] : double.NaN);
+                Append(sb, p.DragCubes.ExposedArea);
+                Append(sb, p.thermalConductionFlux); Append(sb, p.thermalInternalFlux); Append(sb, p.thermalSkinFlux);
+                PartModule wing = FarWing(p);
+                Append(sb, WingValue(wing, "Cl")); Append(sb, WingValue(wing, "Cd")); Append(sb, WingValue(wing, "S"));
+                bool cs = wing != null && wing.GetType().Name == "FARControllableSurface";
+                Append(sb, cs ? WingProperty(wing, "ControlDeflection") : double.NaN);
+                Append(sb, cs ? WingProperty(wing, "ControlPitchLocation") : double.NaN);
+                Append(sb, cs ? WingValue(wing, "maxdeflect") : double.NaN);
+                Append(sb, wing != null ? WingMoment(v, wing) : double.NaN, last: true);
                 _partsWriter.WriteLine(sb.ToString());
             }
         }
@@ -301,6 +337,87 @@ namespace RP0
         {
             if (!double.IsNaN(value)) sb.Append(value.ToString("G9", CultureInfo.InvariantCulture));
             if (!last) sb.Append(',');
+        }
+
+        /// <summary>FAR's wing module on a part (FARWingAerodynamicModel or its control-surface subclass), or null.</summary>
+        private static PartModule FarWing(Part p)
+        {
+            foreach (PartModule m in p.Modules)
+                for (Type t = m.GetType(); t != null && t != typeof(PartModule); t = t.BaseType)
+                    if (t.Name == "FARWingAerodynamicModel") return m;
+            return null;
+        }
+
+        private static double WingValue(PartModule wing, string field)
+        {
+            if (wing == null) return double.NaN;
+            try
+            {
+                System.Reflection.FieldInfo f = wing.GetType().GetField(field, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+                return f != null ? Convert.ToDouble(f.GetValue(wing)) : double.NaN;
+            }
+            catch { return double.NaN; }
+        }
+
+        /// <summary>Nose-up pitch axis of the vessel (the rotation taking the nose toward the roof).</summary>
+        private static Vector3 PitchUpAxis(Vessel v)
+        {
+            Vector3 nose = v.ReferenceTransform.up, roof = -v.ReferenceTransform.forward;
+            return Vector3.Cross(nose, roof).normalized;
+        }
+
+        /// <summary>A wing's pitching moment about the vessel CoM (kN m): FAR's worldSpaceForce at its AerodynamicCenter.</summary>
+        private static double WingMoment(Vessel v, PartModule wing)
+        {
+            try
+            {
+                Type t = wing.GetType();
+                var force = (Vector3)t.GetField("worldSpaceForce").GetValue(wing);
+                var ac = (Vector3d)t.GetField("AerodynamicCenter").GetValue(wing);
+                Vector3 arm = (Vector3)(ac - (Vector3d)v.CoM);
+                return Vector3.Dot(Vector3.Cross(arm, force), PitchUpAxis(v));
+            }
+            catch { return double.NaN; }
+        }
+
+        /// <summary>The wings' and the body parts' pitching moments about the vessel CoM (kN m, nose-up positive).</summary>
+        private static void AeroMoments(Vessel v, out double wingCm, out double bodyCm)
+        {
+            wingCm = bodyCm = 0.0;
+            if (v.ReferenceTransform == null) { wingCm = bodyCm = double.NaN; return; }
+            Vector3 axis = PitchUpAxis(v);
+            Vector3 com = v.CoM;
+            foreach (Part p in v.parts)
+            {
+                foreach (PartModule m in p.Modules)
+                {
+                    Type t = m.GetType();
+                    bool isWing = false;
+                    for (Type b = t; b != null && b != typeof(PartModule); b = b.BaseType) if (b.Name == "FARWingAerodynamicModel") { isWing = true; break; }
+                    if (isWing) { double w = WingMoment(v, m); if (!double.IsNaN(w)) wingCm += w; }
+                    else if (t.Name == "FARAeroPartModule")
+                    {
+                        try
+                        {
+                            var force = (Vector3)t.GetField("worldSpaceAeroForce").GetValue(m);
+                            var torque = (Vector3)t.GetField("worldSpaceTorque").GetValue(m);
+                            Vector3 at = p.Rigidbody != null ? p.Rigidbody.worldCenterOfMass : p.transform.TransformPoint(p.CoMOffset);
+                            bodyCm += Vector3.Dot(Vector3.Cross(at - com, force) + torque, axis);
+                        }
+                        catch { }
+                    }
+                }
+            }
+        }
+
+        private static double WingProperty(PartModule wing, string prop)
+        {
+            try
+            {
+                System.Reflection.PropertyInfo p = wing.GetType().GetProperty(prop, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+                return p != null ? Convert.ToDouble(p.GetValue(wing, null)) : double.NaN;
+            }
+            catch { return double.NaN; }
         }
 
         private static double FarValue(System.Reflection.MethodInfo m, Vessel v)
